@@ -15,6 +15,18 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (e.Args.Contains("--probe"))
+        {
+            // Deviation from brief (bug fix, same authorized scope as the Task.Delay/Say
+            // changes): routing the exit through Dispatcher.Invoke(() => Shutdown(...)) left the
+            // process alive for minutes after RunAsync() completed (observed: probe finished and
+            // logged its result in ~4s, but the process didn't exit until ~2.5 min later, with
+            // the wrong exit code). Probe mode never creates a window/dispatcher-owned resource,
+            // so there is nothing that needs a graceful WPF shutdown — exit the process directly
+            // and deterministically instead.
+            Probe.RunAsync().ContinueWith(t => Environment.Exit(t.Result));
+            return;
+        }
         _instanceMutex = new Mutex(initiallyOwned: true, "XM5Control-SingleInstance", out bool isNew);
         if (!isNew)
         {
