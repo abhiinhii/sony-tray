@@ -10,8 +10,57 @@
             <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.5"/>
         </Border.Effect>
         <StackPanel>
-            <TextBlock x:Name="PlaceholderText" Text="XM5 Control" Foreground="White"
-                       FontSize="16" FontWeight="SemiBold"/>
+            <DockPanel Margin="0,0,0,12">
+                <TextBlock Text="WH-1000XM5" Foreground="White" FontSize="16" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding BatteryText}" Foreground="#B0FFFFFF" FontSize="14"
+                           DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+            </DockPanel>
+
+            <UniformGrid Columns="3" IsEnabled="{Binding IsConnected}">
+                <UniformGrid.Resources>
+                    <Style TargetType="RadioButton">
+                        <Setter Property="Foreground" Value="White"/>
+                        <Setter Property="Margin" Value="2"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="Chip" Background="#33FFFFFF" CornerRadius="6" Padding="8,10">
+                                        <ContentPresenter HorizontalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="Chip" Property="Background" Value="#FF0078D4"/>
+                                        </Trigger>
+                                        <Trigger Property="IsEnabled" Value="False">
+                                            <Setter Property="Opacity" Value="0.4"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </UniformGrid.Resources>
+                <RadioButton Content="Noise Cancel" GroupName="Mode" IsChecked="{Binding IsNcSelected}"/>
+                <RadioButton Content="Ambient" GroupName="Mode" IsChecked="{Binding IsAmbientSelected}"/>
+                <RadioButton Content="Off" GroupName="Mode" IsChecked="{Binding IsOffSelected}"/>
+            </UniformGrid>
+
+            <StackPanel Margin="2,12,2,0" IsEnabled="{Binding AmbientControlsEnabled}">
+                <DockPanel>
+                    <TextBlock Text="Ambient level" Foreground="#B0FFFFFF"/>
+                    <TextBlock Text="{Binding AmbientLevel}" Foreground="White" DockPanel.Dock="Right"
+                               HorizontalAlignment="Right"/>
+                </DockPanel>
+                <Slider Minimum="1" Maximum="20" TickFrequency="1" IsSnapToTickEnabled="True"
+                        Value="{Binding AmbientLevel, UpdateSourceTrigger=PropertyChanged}"/>
+                <CheckBox Content="Focus on voice" Foreground="#B0FFFFFF" Margin="0,6,0,0"
+                          IsChecked="{Binding FocusOnVoice}"/>
+            </StackPanel>
+
+            <!-- EQ section added in Task 9 -->
+            <StackPanel x:Name="EqSection" Margin="2,14,2,0"/>
+
+            <TextBlock Text="{Binding StatusText}" Foreground="#80FFFFFF" FontSize="11" Margin="2,14,2,0"/>
         </StackPanel>
     </Border>
 </Window>

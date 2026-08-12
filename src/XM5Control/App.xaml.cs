@@ -1,7 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
 using Hardcodet.Wpf.TaskbarNotification;
+using XM5Control.Bluetooth;
 using XM5Control.Services;
+using XM5Control.ViewModels;
 using XM5Control.Views;
 
 namespace XM5Control;
@@ -11,6 +13,8 @@ public partial class App : Application
     private Mutex? _instanceMutex;
     private TaskbarIcon? _trayIcon;
     private FlyoutWindow? _flyout;
+    private HeadphonesSession? _session;
+    private MainViewModel? _viewModel;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -34,7 +38,9 @@ public partial class App : Application
             return;
         }
         Log.Info("XM5 Control starting");
-        _flyout = new FlyoutWindow();
+        _session = new HeadphonesSession();
+        _viewModel = new MainViewModel(_session);
+        _flyout = new FlyoutWindow { DataContext = _viewModel };
 
         var menu = new ContextMenu();
         var exitItem = new MenuItem { Header = "Exit" };
@@ -46,12 +52,21 @@ public partial class App : Application
             Icon = TrayIconFactory.Create(connected: false),
             ToolTipText = "XM5 Control — not connected",
             ContextMenu = menu,
+            LeftClickCommand = new RelayCommand(() => _flyout.ShowNearTray()),
         };
-        _trayIcon.LeftClickCommand = new RelayCommand(() => _flyout.ShowNearTray());
+        _viewModel.ConnectionChanged += connected => Dispatcher.BeginInvoke(() =>
+        {
+            _trayIcon.Icon = TrayIconFactory.Create(connected);
+            _trayIcon.ToolTipText = connected
+                ? $"XM5 Control — connected, battery {_viewModel.BatteryText}"
+                : "XM5 Control — not connected";
+        });
+        _session.Start();
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        if (_session is not null) _session.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _trayIcon?.Dispose();
         _instanceMutex?.Dispose();
         base.OnExit(e);
