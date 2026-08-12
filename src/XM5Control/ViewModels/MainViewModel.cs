@@ -121,6 +121,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (Set(ref _selectedEqPreset, value))
             {
+                _bandsDebounce?.Stop();
                 Raise(nameof(EqBandsEditable));
                 if (!_suppressSend && value is not null)
                     _ = PushAsync(() => _session.SetEqPresetAsync(value.Id));
@@ -166,7 +167,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            if (SelectedEqPreset is not { } preset) return;
+            if (SelectedEqPreset is not { Id: >= EqPreset.Manual } preset) return;
             _ = PushAsync(() => _session.SetEqBandsAsync(preset.Id, (int)ClearBass,
                 [(int)Band1, (int)Band2, (int)Band3, (int)Band4, (int)Band5]));
         };
