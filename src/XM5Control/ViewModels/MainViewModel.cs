@@ -13,6 +13,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly HeadphonesSession _session;
     private readonly DispatcherTimer _ambientDebounce;
     private bool _suppressSend; // true while applying device state to the UI
+    private NcAmbMode _mode = NcAmbMode.NoiseCancelling;
 
     public MainViewModel(HeadphonesSession session)
     {
@@ -35,32 +36,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _batteryText = "–";
     public string BatteryText { get => _batteryText; private set => Set(ref _batteryText, value); }
 
-    private bool _isNcSelected;
     public bool IsNcSelected
     {
-        get => _isNcSelected;
-        set { if (Set(ref _isNcSelected, value) && value) ModeChanged(); }
+        get => _mode == NcAmbMode.NoiseCancelling;
+        set { if (value) SelectMode(NcAmbMode.NoiseCancelling); }
     }
 
-    private bool _isAmbientSelected;
     public bool IsAmbientSelected
     {
-        get => _isAmbientSelected;
-        set
-        {
-            if (Set(ref _isAmbientSelected, value))
-            {
-                Raise(nameof(AmbientControlsEnabled));
-                if (value) ModeChanged();
-            }
-        }
+        get => _mode == NcAmbMode.Ambient;
+        set { if (value) SelectMode(NcAmbMode.Ambient); }
     }
 
-    private bool _isOffSelected;
     public bool IsOffSelected
     {
-        get => _isOffSelected;
-        set { if (Set(ref _isOffSelected, value) && value) ModeChanged(); }
+        get => _mode == NcAmbMode.Off;
+        set { if (value) SelectMode(NcAmbMode.Off); }
     }
 
     private double _ambientLevel = 15;
@@ -81,21 +72,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool FocusOnVoice
     {
         get => _focusOnVoice;
-        set { if (Set(ref _focusOnVoice, value)) ModeChanged(); }
+        set { if (Set(ref _focusOnVoice, value) && !_suppressSend) PushMode(); }
     }
 
-    public bool AmbientControlsEnabled => IsConnected && IsAmbientSelected;
+    public bool AmbientControlsEnabled => IsConnected && _mode == NcAmbMode.Ambient;
 
-    private void ModeChanged()
+    private void SelectMode(NcAmbMode mode)
     {
-        if (_suppressSend) return;
-        PushMode();
+        if (_mode == mode) return;
+        _mode = mode;
+        Raise(nameof(IsNcSelected));
+        Raise(nameof(IsAmbientSelected));
+        Raise(nameof(IsOffSelected));
+        Raise(nameof(AmbientControlsEnabled));
+        if (!_suppressSend) PushMode();
     }
 
     private void PushMode()
     {
-        NcAmbMode mode = IsAmbientSelected ? NcAmbMode.Ambient
-            : IsNcSelected ? NcAmbMode.NoiseCancelling : NcAmbMode.Off;
+        NcAmbMode mode = _mode;
         _ = PushAsync(() => _session.SetNcAmbAsync(mode, (int)AmbientLevel, FocusOnVoice));
     }
 
@@ -135,9 +130,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             switch (evt)
             {
                 case NcAmbEvent e:
-                    IsNcSelected = e.Mode == NcAmbMode.NoiseCancelling;
-                    IsAmbientSelected = e.Mode == NcAmbMode.Ambient;
-                    IsOffSelected = e.Mode == NcAmbMode.Off;
+                    SelectMode(e.Mode);
                     if (e.AmbientLevel >= 1) AmbientLevel = e.AmbientLevel;
                     FocusOnVoice = e.FocusOnVoice;
                     break;
