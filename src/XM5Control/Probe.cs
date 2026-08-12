@@ -22,41 +22,33 @@ public static class Probe
     public static async Task<int> RunAsync()
     {
         AllocConsole();
-        Say("Searching for a paired WH-1000XM5…");
-        string? deviceId = await RfcommClient.FindDeviceIdAsync();
-        if (deviceId is null)
+        Say("XM5 Control probe — Ctrl+C or Enter to exit.");
+        await using var session = new HeadphonesSession();
+        session.StateChanged += s => Say($"[state] {s}");
+        session.DeviceUpdated += e => Say($"[event] {e}");
+        session.Start();
+
+        // Once Ready, exercise a round-trip: toggle ambient then restore NC.
+        var readyOnce = new TaskCompletionSource();
+        session.StateChanged += s => { if (s == SessionState.Ready) readyOnce.TrySetResult(); };
+        Task first = await Task.WhenAny(readyOnce.Task, Task.Delay(15000));
+        if (first != readyOnce.Task)
         {
-            Say("FAIL: no paired device exposes the Sony MDR service. Are the headphones paired and on?");
+            Say("FAIL: session did not become Ready within 15 s.");
+            // Deviation from brief (authorized): non-interactive agents can't satisfy a blocking
+            // Console.ReadLine(), so exit immediately with the failure code instead of waiting
+            // for input.
             return 1;
         }
-
-        await using var client = new RfcommClient();
-        byte seq = 0;
-        var done = new TaskCompletionSource();
-        client.FrameReceived += frame =>
-        {
-            seq = frame.Seq;
-            if (frame.Type == MessageType.DataMdr)
-            {
-                _ = client.SendFrameAsync(MessageType.Ack, (byte)(1 - frame.Seq), [], CancellationToken.None);
-                DeviceEvent? evt = PayloadParser.Parse(frame.Payload);
-                Say($"RECV {Convert.ToHexString(frame.Payload)}  =>  {evt?.ToString() ?? "(unparsed)"}");
-                if (evt is ProtocolInfoEvent) done.TrySetResult();
-            }
-        };
-        client.Disconnected += ex => Say($"Disconnected: {ex?.Message ?? "clean"}");
-
-        Say("Connecting…");
-        await client.ConnectAsync(deviceId, CancellationToken.None);
-        await client.SendFrameAsync(MessageType.DataMdr, seq, SonyProtocol.Commands.GetProtocolInfo(), CancellationToken.None);
-
-        Task finished = await Task.WhenAny(done.Task, Task.Delay(5000));
-        Say(finished == done.Task
-            ? "OK: protocol info received. Exiting."
-            : "FAIL: no protocol info within 5 s. Exiting.");
+        Say("Ready. Watch your headphones: switching to Ambient…");
+        await session.SetNcAmbAsync(NcAmbMode.Ambient, 15, focusOnVoice: false);
+        await Task.Delay(2000);
+        Say("…and back to Noise Cancelling.");
+        await session.SetNcAmbAsync(NcAmbMode.NoiseCancelling, 15, focusOnVoice: false);
+        Say("Round-trip complete. Events above should include NcAmbEvent updates.");
         // Deviation from brief (authorized): non-interactive agents can't satisfy a blocking
         // Console.ReadLine(), so exit on a short fixed delay instead of waiting for input.
         await Task.Delay(2000);
-        return finished == done.Task ? 0 : 1;
+        return 0;
     }
 }
