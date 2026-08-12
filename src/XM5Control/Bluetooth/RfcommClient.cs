@@ -117,10 +117,18 @@ public sealed class RfcommClient : IAsyncDisposable
         // loop's token) is not sufficient — the adapters can block trying to complete/flush a
         // pending native operation against a still-open socket, which was observed to hang
         // process shutdown for minutes. With the socket gone, the adapters' Dispose() calls
-        // fault fast instead, so swallow the resulting ObjectDisposedException/IOException.
-        _socket?.Dispose();
-        if (_readCts is not null) await _readCts.CancelAsync();
-        try { _output?.Dispose(); } catch (Exception ex) when (ex is ObjectDisposedException or IOException) { }
+        // fault fast instead, so swallow the resulting ObjectDisposedException/IOException/
+        // COMException at every disposal step — both so a throwing dispose can't skip the CTS
+        // cancel and remaining cleanup, and because a COMException from the WinRT-backed
+        // adapter after socket-first disposal would otherwise propagate through `await using`
+        // and reintroduce the exit-hang/crash class this method exists to avoid.
+        try { _socket?.Dispose(); } catch (Exception ex) when (ex is ObjectDisposedException or IOException or COMException) { }
+        if (_readCts is not null)
+        {
+            await _readCts.CancelAsync();
+            _readCts.Dispose();
+        }
+        try { _output?.Dispose(); } catch (Exception ex) when (ex is ObjectDisposedException or IOException or COMException) { }
         _sendLock.Dispose();
     }
 }
