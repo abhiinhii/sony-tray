@@ -1,9 +1,6 @@
-﻿<Application x:Class="XM5Control.App"
+<Application x:Class="XM5Control.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:XM5Control"
-             StartupUri="MainWindow.xaml">
-    <Application.Resources>
-         
-    </Application.Resources>
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources />
 </Application>
