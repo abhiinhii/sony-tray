@@ -1,4 +1,6 @@
 using System.Windows;
+using System.Windows.Media.Imaging;
+using SonyTray.Services;
 
 namespace SonyTray.Views;
 
@@ -7,6 +9,15 @@ public partial class FlyoutWindow : Window
     public FlyoutWindow()
     {
         InitializeComponent();
+        try
+        {
+            Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/app.ico"));
+        }
+        catch (Exception ex)
+        {
+            // Window icon is cosmetic only — never let a bad/missing resource break the window.
+            Log.Error($"Failed to set FlyoutWindow icon: {ex.Message}");
+        }
         Deactivated += (_, _) => Hide();
     }
 
