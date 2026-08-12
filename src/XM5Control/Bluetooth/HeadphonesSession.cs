@@ -1,4 +1,5 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using SonyProtocol;
 using XM5Control.Services;
 
@@ -20,10 +21,11 @@ public sealed class HeadphonesSession : IAsyncDisposable
 
     private readonly CancellationTokenSource _cts = new();
     private readonly SemaphoreSlim _commandLock = new(1, 1); // one in-flight command at a time
-    private RfcommClient? _client;
+    private volatile RfcommClient? _client;
     private volatile byte _seq;
-    private TaskCompletionSource? _ackTcs;
-    private TaskCompletionSource? _protocolInfoTcs;
+    private TaskCompletionSource? _ackTcs; // consumed once-only via Interlocked (see OnFrame/SendCommandAsync)
+    private volatile TaskCompletionSource? _protocolInfoTcs;
+    private int _disposed;
 
     public SessionState State { get; private set; } = SessionState.Disconnected;
     public event Action<SessionState>? StateChanged;
@@ -53,7 +55,18 @@ public sealed class HeadphonesSession : IAsyncDisposable
                 var dropped = new TaskCompletionSource();
                 client.FrameReceived += OnFrame;
                 client.Disconnected += _ => dropped.TrySetResult();
-                await client.ConnectAsync(deviceId, ct);
+                try
+                {
+                    await client.ConnectAsync(deviceId, ct);
+                }
+                catch
+                {
+                    // ConnectAsync threw or was canceled: `client` never made it into the
+                    // `_client` field, so none of the catch blocks below would dispose it.
+                    // Dispose it here before propagating so the socket/read-loop don't leak.
+                    await client.DisposeAsync();
+                    throw;
+                }
                 _client = client;
                 _seq = 0;
 
@@ -98,10 +111,15 @@ public sealed class HeadphonesSession : IAsyncDisposable
         switch (frame.Type)
         {
             case MessageType.Ack:
-                _ackTcs?.TrySetResult();
+                // Consume once-only: whichever attempt currently owns _ackTcs gets this ACK,
+                // and the field is cleared atomically so a duplicate/late ACK can't complete a
+                // later attempt's TCS too (see the era-scoped clearing in SendCommandAsync).
+                Interlocked.Exchange(ref _ackTcs, null)?.TrySetResult();
                 break;
             case MessageType.DataMdr:
-                _ = _client?.SendFrameAsync(MessageType.Ack, (byte)(1 - frame.Seq), [], _cts.Token);
+                ObserveFault(
+                    _client?.SendFrameAsync(MessageType.Ack, (byte)(1 - frame.Seq), [], _cts.Token),
+                    "ACK send");
                 DeviceEvent? evt = PayloadParser.Parse(frame.Payload);
                 if (evt is null)
                 {
@@ -114,28 +132,46 @@ public sealed class HeadphonesSession : IAsyncDisposable
         }
     }
 
+    /// <summary>Fire-and-forget helper that logs (instead of silently swallowing) a faulted task.</summary>
+    private static void ObserveFault(Task? task, string context) =>
+        task?.ContinueWith(
+            t => Log.Info($"{context} failed: {t.Exception?.GetBaseException().Message}"),
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+
     /// <summary>Sends one DATA_MDR command and awaits the device ACK (with retries).</summary>
     private async Task SendCommandAsync(byte[] payload, CancellationToken ct)
     {
-        RfcommClient client = _client ?? throw new InvalidOperationException("Not connected");
         await _commandLock.WaitAsync(ct);
         try
         {
             for (int attempt = 0; attempt <= AckRetries; attempt++)
             {
-                _ackTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                await client.SendFrameAsync(MessageType.DataMdr, _seq, payload, ct);
+                // Fresh, era-scoped TCS per attempt: OnFrame consumes it exactly once via
+                // Interlocked.Exchange, so a late ACK for an earlier attempt can't complete a
+                // later one.
+                var ackTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _ackTcs = ackTcs;
                 try
                 {
-                    await _ackTcs.Task.WaitAsync(AckTimeout, ct);
+                    // Re-read _client on every attempt (not once, before the loop): a disconnect
+                    // between attempts must surface as a failed attempt here, not as an
+                    // InvalidOperationException/ObjectDisposedException that breaks the
+                    // documented "throws TimeoutException after retries" contract.
+                    RfcommClient client = _client ?? throw new InvalidOperationException("Not connected");
+                    await client.SendFrameAsync(MessageType.DataMdr, _seq, payload, ct);
+                    await ackTcs.Task.WaitAsync(AckTimeout, ct);
                     return;
                 }
-                catch (TimeoutException)
+                catch (Exception ex) when (ex is TimeoutException or InvalidOperationException
+                    or ObjectDisposedException or IOException or COMException)
                 {
-                    Log.Info($"No ACK for {Convert.ToHexString(payload)} (attempt {attempt + 1})");
+                    // Only clear the field if it's still *this* attempt's TCS — if an ACK raced
+                    // in and Interlocked.Exchange already consumed/cleared it, leave that alone.
+                    Interlocked.CompareExchange(ref _ackTcs, null, ackTcs);
+                    Log.Info($"Command attempt {attempt + 1} failed ({ex.GetType().Name}: {ex.Message}) for {Convert.ToHexString(payload)}");
                 }
             }
-            throw new TimeoutException("Device did not acknowledge the command");
+            throw new TimeoutException("Device did not acknowledge the command (possible disconnect)");
         }
         finally
         {
@@ -189,6 +225,7 @@ public sealed class HeadphonesSession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return; // idempotent: second call is a no-op
         await _cts.CancelAsync();
         if (_client is not null) await _client.DisposeAsync();
         _commandLock.Dispose();
