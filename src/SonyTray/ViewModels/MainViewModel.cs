@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -13,10 +14,25 @@ namespace SonyTray.ViewModels;
 
 public sealed class MainViewModel : INotifyPropertyChanged
 {
+    // 6-band devices (XM5-class): Clear Bass first, then 400/1k/2.5k/6.3k/16k Hz, range −10…+10.
+    private static readonly (string Label, double Min, double Max)[] SixBandLayout =
+    [
+        ("CB", -10, 10), ("400", -10, 10), ("1k", -10, 10),
+        ("2.5k", -10, 10), ("6.3k", -10, 10), ("16k", -10, 10),
+    ];
+
+    // 10-band devices: no Clear Bass, range −6…+6.
+    private static readonly (string Label, double Min, double Max)[] TenBandLayout =
+    [
+        ("31", -6, 6), ("63", -6, 6), ("125", -6, 6), ("250", -6, 6), ("500", -6, 6),
+        ("1k", -6, 6), ("2k", -6, 6), ("4k", -6, 6), ("8k", -6, 6), ("16k", -6, 6),
+    ];
+
     private readonly HeadphonesSession _session;
     private readonly DispatcherTimer _ambientDebounce;
     private bool _suppressSend; // true while applying device state to the UI
     private NcAmbMode _mode = NcAmbMode.NoiseCancelling;
+    private bool _isTenBandEq;
 
     public MainViewModel(HeadphonesSession session)
     {
@@ -24,8 +40,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _ambientDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _ambientDebounce.Tick += (_, _) => { _ambientDebounce.Stop(); PushMode(); };
         PowerOffCommand = new RelayCommand(() => _ = PushAsync(() => _session.PowerOffAsync()));
+        InitBands(SixBandLayout, new double[6]);
         session.StateChanged += s => OnUi(() => ApplyState(s));
         session.DeviceUpdated += e => OnUi(() => ApplyEvent(e));
+        session.CapabilitiesResolved += c => OnUi(() => ApplyCapabilities(c));
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -36,15 +54,38 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public RelayCommand PowerOffCommand { get; }
 
-    // Default true until Task 15 wires this to device capabilities.
+    // Default true until capabilities resolve (matches pre-Task-15 XM5-only behavior).
     private bool _powerOffVisible = true;
-    public bool PowerOffVisible { get => _powerOffVisible; set => Set(ref _powerOffVisible, value); }
+    public bool PowerOffVisible { get => _powerOffVisible; private set => Set(ref _powerOffVisible, value); }
+
+    private string _deviceName = "Sony Headphones";
+    public string DeviceName { get => _deviceName; private set => Set(ref _deviceName, value); }
+
+    // Default true so the NC chip is present before capabilities resolve (matches XM5 v1 behavior).
+    private bool _hasNcChip = true;
+    public bool HasNcChip { get => _hasNcChip; private set { Set(ref _hasNcChip, value); Raise(nameof(ModeChipColumns)); } }
+
+    public int ModeChipColumns => HasNcChip ? 3 : 2;
+
+    // Default true so the EQ section is visible before capabilities resolve (matches XM5 v1 behavior).
+    private bool _hasEqSection = true;
+    public bool HasEqSection { get => _hasEqSection; private set => Set(ref _hasEqSection, value); }
 
     private string _statusText = "Searching for headphones…";
     public string StatusText { get => _statusText; private set => Set(ref _statusText, value); }
 
     private string _batteryText = "–";
     public string BatteryText { get => _batteryText; private set => Set(ref _batteryText, value); }
+
+    // Latest readings per announced battery kind — composed into BatteryText as they arrive.
+    private int? _singleLevel;
+    private ChargingStatus _singleCharging;
+    private int? _leftLevel;
+    private ChargingStatus _leftCharging;
+    private int? _rightLevel;
+    private ChargingStatus _rightCharging;
+    private int? _cradleLevel;
+    private ChargingStatus _cradleCharging;
 
     public bool IsNcSelected
     {
@@ -144,22 +185,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool EqBandsEditable =>
         IsConnected && EqAvailable && SelectedEqPreset is { Id: >= EqPreset.Manual };
 
-    private readonly double[] _bands = new double[5];
-    private double _clearBass;
-    public double ClearBass { get => _clearBass; set { if (Set(ref _clearBass, Math.Clamp(Math.Round(value), -10, 10)) && !_suppressSend) DebounceBands(); } }
-    public double Band1 { get => _bands[0]; set => SetBand(0, value); }
-    public double Band2 { get => _bands[1]; set => SetBand(1, value); }
-    public double Band3 { get => _bands[2]; set => SetBand(2, value); }
-    public double Band4 { get => _bands[3]; set => SetBand(3, value); }
-    public double Band5 { get => _bands[4]; set => SetBand(4, value); }
+    /// <summary>One entry per equalizer band/slider — 6 (Clear Bass + 5) or 10, driven by the device's EqEvent.</summary>
+    public ObservableCollection<BandViewModel> EqBands { get; } = [];
 
-    private void SetBand(int i, double value, [CallerMemberName] string? name = null)
+    private void InitBands((string Label, double Min, double Max)[] layout, IReadOnlyList<double> values)
     {
-        double clamped = Math.Clamp(Math.Round(value), -10, 10);
-        if (_bands[i] == clamped) return;
-        _bands[i] = clamped;
-        Raise(name);
-        if (!_suppressSend) DebounceBands();
+        EqBands.Clear();
+        for (int i = 0; i < layout.Length; i++)
+            EqBands.Add(new BandViewModel(this, layout[i].Label, layout[i].Min, layout[i].Max, values[i]));
+    }
+
+    private void ApplyBandValues(IReadOnlyList<double> values)
+    {
+        for (int i = 0; i < values.Count && i < EqBands.Count; i++)
+            EqBands[i].Value = values[i];
     }
 
     private DispatcherTimer? _bandsDebounce;
@@ -177,8 +216,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             timer.Stop();
             if (SelectedEqPreset is not { Id: >= EqPreset.Manual } preset) return;
-            _ = PushAsync(() => _session.SetEqBandsAsync(preset.Id, (int)ClearBass,
-                [(int)Band1, (int)Band2, (int)Band3, (int)Band4, (int)Band5]));
+            if (_isTenBandEq)
+            {
+                int[] bands = EqBands.Select(b => (int)b.Value).ToArray();
+                _ = PushAsync(() => _session.SetEqBands10Async(preset.Id, bands));
+            }
+            else
+            {
+                int clearBass = (int)EqBands[0].Value;
+                int[] bands = EqBands.Skip(1).Select(b => (int)b.Value).ToArray();
+                _ = PushAsync(() => _session.SetEqBandsAsync(preset.Id, clearBass, bands));
+            }
         };
         return timer;
     }
@@ -212,6 +260,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Raise(nameof(EqBandsEditable));
     }
 
+    private void ApplyCapabilities(DeviceCapabilities caps)
+    {
+        DeviceName = caps.DeviceName;
+        HasNcChip = caps.HasNcMode;
+        HasEqSection = caps.HasEq;
+        PowerOffVisible = caps.HasPowerOff;
+    }
+
     private void ApplyEvent(DeviceEvent evt)
     {
         _suppressSend = true;
@@ -225,7 +281,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     FocusOnVoice = e.FocusOnVoice;
                     break;
                 case BatteryEvent e:
-                    BatteryText = e.Charging == ChargingStatus.Charging ? $"{e.Level}% ⚡" : $"{e.Level}%";
+                    _singleLevel = e.Level;
+                    _singleCharging = e.Charging;
+                    RecomputeBatteryText();
+                    break;
+                case LeftRightBatteryEvent e:
+                    _leftLevel = e.LeftLevel;
+                    _leftCharging = e.LeftCharging;
+                    _rightLevel = e.RightLevel;
+                    _rightCharging = e.RightCharging;
+                    RecomputeBatteryText();
+                    break;
+                case CradleBatteryEvent e:
+                    _cradleLevel = e.Level;
+                    _cradleCharging = e.Charging;
+                    RecomputeBatteryText();
                     break;
                 default:
                     ApplyEqEvent(evt); // Task 9
@@ -238,6 +308,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    private static string FormatBatteryPart(int level, ChargingStatus charging) =>
+        charging == ChargingStatus.Charging ? $"{level}% ⚡" : $"{level}%";
+
+    private void RecomputeBatteryText()
+    {
+        string core;
+        if (_leftLevel is int l && _rightLevel is int r)
+            core = $"L {FormatBatteryPart(l, _leftCharging)} · R {FormatBatteryPart(r, _rightCharging)}";
+        else if (_singleLevel is int s)
+            core = FormatBatteryPart(s, _singleCharging);
+        else
+        {
+            BatteryText = "–";
+            return;
+        }
+
+        if (_cradleLevel is int c)
+            core += $" · Case {FormatBatteryPart(c, _cradleCharging)}";
+
+        BatteryText = core;
+    }
+
     private void ApplyEqEvent(DeviceEvent evt)
     {
         switch (evt)
@@ -245,15 +337,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
             case EqStatusEvent e:
                 EqAvailable = e.Available;
                 break;
+            case EqEvent e when e.Bands.Length == 5: // 6-band device: Clear Bass + 5
+            {
+                _isTenBandEq = false;
+                SelectedEqPreset = EqPresets.FirstOrDefault(p => p.Id == e.Preset)
+                    ?? new EqPresetChoice(e.Preset, $"Preset 0x{(byte)e.Preset:X2}");
+                double[] values = [e.ClearBass, e.Bands[0], e.Bands[1], e.Bands[2], e.Bands[3], e.Bands[4]];
+                if (EqBands.Count != SixBandLayout.Length) InitBands(SixBandLayout, values);
+                else ApplyBandValues(values);
+                break;
+            }
+            case EqEvent e when e.Bands.Length == 10: // 10-band device, no Clear Bass
+            {
+                _isTenBandEq = true;
+                SelectedEqPreset = EqPresets.FirstOrDefault(p => p.Id == e.Preset)
+                    ?? new EqPresetChoice(e.Preset, $"Preset 0x{(byte)e.Preset:X2}");
+                double[] values = e.Bands.Select(b => (double)b).ToArray();
+                if (EqBands.Count != TenBandLayout.Length) InitBands(TenBandLayout, values);
+                else ApplyBandValues(values);
+                break;
+            }
             case EqEvent e:
                 SelectedEqPreset = EqPresets.FirstOrDefault(p => p.Id == e.Preset)
                     ?? new EqPresetChoice(e.Preset, $"Preset 0x{(byte)e.Preset:X2}");
-                if (e.Bands.Length == 5)
-                {
-                    ClearBass = e.ClearBass;
-                    Band1 = e.Bands[0]; Band2 = e.Bands[1]; Band3 = e.Bands[2];
-                    Band4 = e.Bands[3]; Band5 = e.Bands[4];
-                }
                 break;
         }
     }
@@ -275,4 +381,39 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void Raise([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    /// <summary>One equalizer slider: label, allowed range, and current value (user scale).</summary>
+    public sealed class BandViewModel : INotifyPropertyChanged
+    {
+        private readonly MainViewModel _owner;
+        private double _value;
+
+        internal BandViewModel(MainViewModel owner, string label, double min, double max, double initial)
+        {
+            _owner = owner;
+            Label = label;
+            Min = min;
+            Max = max;
+            _value = initial;
+        }
+
+        public string Label { get; }
+        public double Min { get; }
+        public double Max { get; }
+
+        public double Value
+        {
+            get => _value;
+            set
+            {
+                double clamped = Math.Clamp(Math.Round(value), Min, Max);
+                if (_value == clamped) return;
+                _value = clamped;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Value)));
+                if (!_owner._suppressSend) _owner.DebounceBands();
+            }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+    }
 }

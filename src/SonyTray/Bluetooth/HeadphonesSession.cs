@@ -13,6 +13,18 @@ public enum SessionState
     BluetoothOff,
 }
 
+/// <summary>
+/// What a connected device announced via its support-function RET, and the choices derived
+/// from it (which NcAsm wire variant to speak, which battery layouts to query, etc.).
+/// </summary>
+public sealed record DeviceCapabilities(
+    NcAmbVariant NcVariant,
+    bool HasNcMode,
+    IReadOnlyList<BatteryKind> Batteries,
+    bool HasEq,
+    bool HasPowerOff,
+    string DeviceName);
+
 public sealed class HeadphonesSession : IAsyncDisposable
 {
     private static readonly TimeSpan AckTimeout = TimeSpan.FromSeconds(2);
@@ -25,11 +37,17 @@ public sealed class HeadphonesSession : IAsyncDisposable
     private volatile byte _seq;
     private TaskCompletionSource? _ackTcs; // consumed once-only via Interlocked (see OnFrame/SendCommandAsync)
     private volatile TaskCompletionSource? _protocolInfoTcs;
+    private volatile TaskCompletionSource<SupportFunctionsEvent>? _supportFunctionsTcs;
+    private volatile DeviceCapabilities? _capabilities;
+    private string _deviceName = "Sony Headphones";
     private int _disposed;
 
     public SessionState State { get; private set; } = SessionState.Disconnected;
     public event Action<SessionState>? StateChanged;
     public event Action<DeviceEvent>? DeviceUpdated;
+
+    /// <summary>Raised once per successful connection, right after the support-function RET is resolved.</summary>
+    public event Action<DeviceCapabilities>? CapabilitiesResolved;
 
     public void Start() => _ = Task.Run(() => RunAsync(_cts.Token));
 
@@ -47,9 +65,11 @@ public sealed class HeadphonesSession : IAsyncDisposable
                     await Task.Delay(TimeSpan.FromSeconds(3), ct);
                     continue;
                 }
-                string? deviceId = await RfcommClient.FindDeviceIdAsync();
-                if (deviceId is null)
-                    throw new IOException("No paired WH-1000XM5 reachable");
+                (string Id, string Name)? found = await RfcommClient.FindDeviceIdAsync();
+                if (found is null)
+                    throw new IOException("No paired Sony headset reachable");
+                string deviceId = found.Value.Id;
+                _deviceName = string.IsNullOrWhiteSpace(found.Value.Name) ? "Sony Headphones" : found.Value.Name;
 
                 var client = new RfcommClient();
                 var dropped = new TaskCompletionSource();
@@ -99,10 +119,59 @@ public sealed class HeadphonesSession : IAsyncDisposable
         _protocolInfoTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await SendCommandAsync(SonyProtocol.Commands.GetProtocolInfo(), ct);
         await _protocolInfoTcs.Task.WaitAsync(TimeSpan.FromSeconds(3), ct);
-        await SendCommandAsync(SonyProtocol.Commands.GetNcAmb(), ct);
-        await SendCommandAsync(SonyProtocol.Commands.GetEqStatus(), ct);
-        await SendCommandAsync(SonyProtocol.Commands.GetEq(), ct);
-        await SendCommandAsync(SonyProtocol.Commands.GetBattery(), ct);
+
+        _supportFunctionsTcs = new TaskCompletionSource<SupportFunctionsEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await SendCommandAsync(SonyProtocol.Commands.GetSupportFunctions(), ct);
+        SupportFunctionsEvent sfe = await _supportFunctionsTcs.Task.WaitAsync(TimeSpan.FromSeconds(3), ct);
+
+        DeviceCapabilities caps = ResolveCapabilities(sfe.Functions, _deviceName);
+        _capabilities = caps;
+        CapabilitiesResolved?.Invoke(caps);
+
+        await RunCapabilityQueriesAsync(caps, ct);
+    }
+
+    /// <summary>
+    /// Maps announced function ids (Table 1) to the wire variant/queries to use. Falls back to
+    /// the XM5-like DualSeamless variant with NC support if the device didn't announce any of the
+    /// known NcAsm function ids — better to guess XM5-compatible than to refuse to talk at all.
+    /// </summary>
+    private static DeviceCapabilities ResolveCapabilities(IReadOnlySet<byte> functions, string deviceName)
+    {
+        NcAmbVariant ncVariant;
+        bool hasNcMode;
+        if (functions.Contains(0x6B)) { ncVariant = NcAmbVariant.DualSeamless; hasNcMode = true; }
+        else if (functions.Contains(0x6D)) { ncVariant = NcAmbVariant.DualSeamlessNoiseAdaptive; hasNcMode = true; }
+        else if (functions.Contains(0x67)) { ncVariant = NcAmbVariant.AsmSeamless; hasNcMode = false; }
+        else
+        {
+            Log.Info("Device did not announce a known NC/AMB function id (0x6B/0x6D/0x67); " +
+                     "falling back to XM5-style DualSeamless (0x17)");
+            ncVariant = NcAmbVariant.DualSeamless;
+            hasNcMode = true;
+        }
+
+        var batteries = new List<BatteryKind>();
+        if (functions.Contains(0x20) || functions.Contains(0x28)) batteries.Add(BatteryKind.Single);
+        if (functions.Contains(0x21) || functions.Contains(0x29)) batteries.Add(BatteryKind.LeftRight);
+        if (functions.Contains(0x22) || functions.Contains(0x2A)) batteries.Add(BatteryKind.Cradle);
+
+        bool hasEq = functions.Contains(0x50) || functions.Contains(0x52) || functions.Contains(0x57);
+        bool hasPowerOff = functions.Contains(0x23);
+
+        return new DeviceCapabilities(ncVariant, hasNcMode, batteries, hasEq, hasPowerOff, deviceName);
+    }
+
+    private async Task RunCapabilityQueriesAsync(DeviceCapabilities caps, CancellationToken ct)
+    {
+        await SendCommandAsync(SonyProtocol.Commands.GetNcAmb(caps.NcVariant), ct);
+        if (caps.HasEq)
+        {
+            await SendCommandAsync(SonyProtocol.Commands.GetEqStatus(), ct);
+            await SendCommandAsync(SonyProtocol.Commands.GetEq(), ct);
+        }
+        foreach (BatteryKind kind in caps.Batteries)
+            await SendCommandAsync(SonyProtocol.Commands.GetBattery(kind), ct);
     }
 
     private void OnFrame(Frame frame)
@@ -127,6 +196,7 @@ public sealed class HeadphonesSession : IAsyncDisposable
                     return;
                 }
                 if (evt is ProtocolInfoEvent) _protocolInfoTcs?.TrySetResult();
+                if (evt is SupportFunctionsEvent sfe) _supportFunctionsTcs?.TrySetResult(sfe);
                 DeviceUpdated?.Invoke(evt);
                 break;
         }
@@ -179,8 +249,13 @@ public sealed class HeadphonesSession : IAsyncDisposable
         }
     }
 
-    public Task SetNcAmbAsync(NcAmbMode mode, int ambientLevel, bool focusOnVoice) =>
-        SendCommandAsync(SonyProtocol.Commands.SetNcAmb(mode, ambientLevel, focusOnVoice), _cts.Token);
+    // Signature stays mode/level/voice for the VM — the session applies whatever variant the
+    // connected device announced.
+    public Task SetNcAmbAsync(NcAmbMode mode, int ambientLevel, bool focusOnVoice)
+    {
+        NcAmbVariant variant = _capabilities?.NcVariant ?? NcAmbVariant.DualSeamless;
+        return SendCommandAsync(SonyProtocol.Commands.SetNcAmb(variant, mode, ambientLevel, focusOnVoice), _cts.Token);
+    }
 
     public async Task SetEqPresetAsync(EqPreset preset)
     {
@@ -188,20 +263,22 @@ public sealed class HeadphonesSession : IAsyncDisposable
         await SendCommandAsync(SonyProtocol.Commands.GetEq(), _cts.Token); // reference re-queries after preset change
     }
 
+    /// <summary>6-band devices (XM5-class): Clear Bass + 5 bands.</summary>
     public Task SetEqBandsAsync(EqPreset preset, int clearBass, int[] bands) =>
         SendCommandAsync(SonyProtocol.Commands.SetEqBands(preset, clearBass, bands), _cts.Token);
+
+    /// <summary>10-band devices: no Clear Bass.</summary>
+    public Task SetEqBands10Async(EqPreset preset, int[] bands) =>
+        SendCommandAsync(SonyProtocol.Commands.SetEqBands10(preset, bands), _cts.Token);
 
     // Device ACKs then drops the RFCOMM link; the reconnect loop's normal path handles the drop.
     public Task PowerOffAsync() =>
         SendCommandAsync(SonyProtocol.Commands.PowerOff(), _cts.Token);
 
-    public async Task RefreshAsync()
+    public Task RefreshAsync()
     {
-        CancellationToken ct = _cts.Token;
-        await SendCommandAsync(SonyProtocol.Commands.GetNcAmb(), ct);
-        await SendCommandAsync(SonyProtocol.Commands.GetEqStatus(), ct);
-        await SendCommandAsync(SonyProtocol.Commands.GetEq(), ct);
-        await SendCommandAsync(SonyProtocol.Commands.GetBattery(), ct);
+        DeviceCapabilities? caps = _capabilities;
+        return caps is null ? Task.CompletedTask : RunCapabilityQueriesAsync(caps, _cts.Token);
     }
 
     private static async Task<bool> IsBluetoothOffAsync()

@@ -22,8 +22,8 @@ public sealed class RfcommClient : IAsyncDisposable
     public event Action<Frame>? FrameReceived;
     public event Action<Exception?>? Disconnected;
 
-    /// <summary>Finds the paired WH-1000XM5 (any paired device exposing the Sony MDR service).</summary>
-    public static async Task<string?> FindDeviceIdAsync()
+    /// <summary>Finds the paired Sony headset (any paired device exposing the Sony MDR service).</summary>
+    public static async Task<(string Id, string Name)?> FindDeviceIdAsync()
     {
         string selector = BluetoothDevice.GetDeviceSelectorFromPairingState(true);
         DeviceInformationCollection paired = await DeviceInformation.FindAllAsync(selector);
@@ -36,7 +36,7 @@ public sealed class RfcommClient : IAsyncDisposable
             if (services.Services.Count > 0)
             {
                 Log.Info($"Found Sony device: {info.Name} ({info.Id})");
-                return info.Id;
+                return (info.Id, info.Name);
             }
         }
         return null;

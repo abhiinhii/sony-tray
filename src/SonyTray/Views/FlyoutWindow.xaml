@@ -14,7 +14,7 @@
         </Border.Effect>
         <StackPanel>
             <DockPanel Margin="0,0,0,12">
-                <TextBlock Text="WH-1000XM5" Foreground="White" FontSize="16" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding DeviceName}" Foreground="White" FontSize="16" FontWeight="SemiBold"/>
                 <Button DockPanel.Dock="Right" Content="&#x23FB;" FontSize="14" Foreground="#B0FFFFFF"
                         Background="Transparent" BorderThickness="0" Padding="6,0" Cursor="Hand"
                         Margin="6,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Right"
@@ -32,7 +32,7 @@
                            DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
             </DockPanel>
 
-            <UniformGrid Columns="3" IsEnabled="{Binding IsConnected}">
+            <UniformGrid Columns="{Binding ModeChipColumns}" IsEnabled="{Binding IsConnected}">
                 <UniformGrid.Resources>
                     <Style TargetType="RadioButton">
                         <Setter Property="Foreground" Value="White"/>
@@ -56,7 +56,8 @@
                         </Setter>
                     </Style>
                 </UniformGrid.Resources>
-                <RadioButton Content="Noise Cancel" GroupName="Mode" IsChecked="{Binding IsNcSelected}"/>
+                <RadioButton Content="Noise Cancel" GroupName="Mode" IsChecked="{Binding IsNcSelected}"
+                             Visibility="{Binding HasNcChip, Converter={StaticResource BoolToVis}}"/>
                 <RadioButton Content="Ambient" GroupName="Mode" IsChecked="{Binding IsAmbientSelected}"/>
                 <RadioButton Content="Off" GroupName="Mode" IsChecked="{Binding IsOffSelected}"/>
             </UniformGrid>
@@ -73,42 +74,34 @@
                           IsChecked="{Binding FocusOnVoice}"/>
             </StackPanel>
 
-            <StackPanel Margin="2,14,2,0" IsEnabled="{Binding IsConnected}">
+            <StackPanel Margin="2,14,2,0" IsEnabled="{Binding IsConnected}"
+                        Visibility="{Binding HasEqSection, Converter={StaticResource BoolToVis}}">
                 <DockPanel>
                     <TextBlock Text="Equalizer" Foreground="#B0FFFFFF" VerticalAlignment="Center"/>
                     <ComboBox DockPanel.Dock="Right" Width="140" HorizontalAlignment="Right"
                               ItemsSource="{Binding EqPresets}" DisplayMemberPath="Name"
                               SelectedItem="{Binding SelectedEqPreset}"/>
                 </DockPanel>
-                <Grid Margin="0,10,0,0" IsEnabled="{Binding EqBandsEditable}" Height="110">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition/><ColumnDefinition/><ColumnDefinition/>
-                        <ColumnDefinition/><ColumnDefinition/><ColumnDefinition/>
-                    </Grid.ColumnDefinitions>
-                    <Grid.Resources>
-                        <Style TargetType="Slider">
-                            <Setter Property="Orientation" Value="Vertical"/>
-                            <Setter Property="Minimum" Value="-10"/>
-                            <Setter Property="Maximum" Value="10"/>
-                            <Setter Property="TickFrequency" Value="1"/>
-                            <Setter Property="IsSnapToTickEnabled" Value="True"/>
-                            <Setter Property="HorizontalAlignment" Value="Center"/>
-                            <Setter Property="Height" Value="86"/>
-                        </Style>
-                        <Style TargetType="TextBlock">
-                            <Setter Property="Foreground" Value="#80FFFFFF"/>
-                            <Setter Property="FontSize" Value="10"/>
-                            <Setter Property="HorizontalAlignment" Value="Center"/>
-                            <Setter Property="VerticalAlignment" Value="Bottom"/>
-                        </Style>
-                    </Grid.Resources>
-                    <StackPanel Grid.Column="0"><Slider Value="{Binding ClearBass, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="CB"/></StackPanel>
-                    <StackPanel Grid.Column="1"><Slider Value="{Binding Band1, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="400"/></StackPanel>
-                    <StackPanel Grid.Column="2"><Slider Value="{Binding Band2, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="1k"/></StackPanel>
-                    <StackPanel Grid.Column="3"><Slider Value="{Binding Band3, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="2.5k"/></StackPanel>
-                    <StackPanel Grid.Column="4"><Slider Value="{Binding Band4, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="6.3k"/></StackPanel>
-                    <StackPanel Grid.Column="5"><Slider Value="{Binding Band5, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="16k"/></StackPanel>
-                </Grid>
+                <ItemsControl Margin="0,10,0,0" ItemsSource="{Binding EqBands}"
+                              IsEnabled="{Binding EqBandsEditable}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <UniformGrid Rows="1" Height="110"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel>
+                                <Slider Orientation="Vertical" Minimum="{Binding Min}" Maximum="{Binding Max}"
+                                        TickFrequency="1" IsSnapToTickEnabled="True"
+                                        HorizontalAlignment="Center" Height="86"
+                                        Value="{Binding Value, UpdateSourceTrigger=PropertyChanged}"/>
+                                <TextBlock Text="{Binding Label}" Foreground="#80FFFFFF" FontSize="10"
+                                           HorizontalAlignment="Center" VerticalAlignment="Bottom"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </StackPanel>
 
             <TextBlock Text="{Binding StatusText}" Foreground="#80FFFFFF" FontSize="11" Margin="2,14,2,0"/>
