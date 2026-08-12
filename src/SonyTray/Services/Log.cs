@@ -1,12 +1,12 @@
 using System.IO;
 
-namespace XM5Control.Services;
+namespace SonyTray.Services;
 
 public static class Log
 {
     private static readonly object Gate = new();
     private static readonly string Dir =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "XM5Control", "logs");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SonyTray", "logs");
     private static readonly string File_ = Path.Combine(Dir, "app.log");
     private const long MaxBytes = 1_000_000;
 

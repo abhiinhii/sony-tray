@@ -7,7 +7,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{A44ED629-F91
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SonyProtocol", "src\SonyProtocol\SonyProtocol.csproj", "{18731D58-FF05-4B4F-86FD-842EA298E160}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XM5Control", "src\XM5Control\XM5Control.csproj", "{B04EEA26-FD3D-42F4-AACA-ED85C21CEE4A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SonyTray", "src\SonyTray\SonyTray.csproj", "{B04EEA26-FD3D-42F4-AACA-ED85C21CEE4A}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{17D061A5-7D75-48C9-91A9-6AFD7BD1845E}"
 EndProject

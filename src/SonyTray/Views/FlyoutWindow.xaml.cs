@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace XM5Control.Views;
+namespace SonyTray.Views;
 
 public partial class FlyoutWindow : Window
 {

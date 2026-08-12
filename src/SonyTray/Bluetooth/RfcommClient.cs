@@ -6,9 +6,9 @@ using Windows.Devices.Bluetooth.Rfcomm;
 using Windows.Devices.Enumeration;
 using Windows.Networking.Sockets;
 using Windows.Storage.Streams;
-using XM5Control.Services;
+using SonyTray.Services;
 
-namespace XM5Control.Bluetooth;
+namespace SonyTray.Bluetooth;
 
 public sealed class RfcommClient : IAsyncDisposable
 {

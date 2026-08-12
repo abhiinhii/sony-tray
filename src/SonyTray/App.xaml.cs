@@ -1,12 +1,12 @@
 using System.Windows;
 using System.Windows.Controls;
 using Hardcodet.Wpf.TaskbarNotification;
-using XM5Control.Bluetooth;
-using XM5Control.Services;
-using XM5Control.ViewModels;
-using XM5Control.Views;
+using SonyTray.Bluetooth;
+using SonyTray.Services;
+using SonyTray.ViewModels;
+using SonyTray.Views;
 
-namespace XM5Control;
+namespace SonyTray;
 
 public partial class App : Application
 {
@@ -31,13 +31,13 @@ public partial class App : Application
             Probe.RunAsync().ContinueWith(t => Environment.Exit(t.Result));
             return;
         }
-        _instanceMutex = new Mutex(initiallyOwned: true, "XM5Control-SingleInstance", out bool isNew);
+        _instanceMutex = new Mutex(initiallyOwned: true, "SonyTray-SingleInstance", out bool isNew);
         if (!isNew)
         {
             Shutdown();
             return;
         }
-        Log.Info("XM5 Control starting");
+        Log.Info("Sony Tray starting");
         _session = new HeadphonesSession();
         _viewModel = new MainViewModel(_session);
         _flyout = new FlyoutWindow { DataContext = _viewModel };
@@ -54,7 +54,7 @@ public partial class App : Application
         _trayIcon = new TaskbarIcon
         {
             Icon = TrayIconFactory.Create(connected: false),
-            ToolTipText = "XM5 Control — not connected",
+            ToolTipText = "Sony Tray — not connected",
             ContextMenu = menu,
             LeftClickCommand = new RelayCommand(() => _flyout.ShowNearTray()),
         };
@@ -62,8 +62,8 @@ public partial class App : Application
         {
             _trayIcon.Icon = TrayIconFactory.Create(connected);
             _trayIcon.ToolTipText = connected
-                ? $"XM5 Control — connected, battery {_viewModel.BatteryText}"
-                : "XM5 Control — not connected";
+                ? $"Sony Tray — connected, battery {_viewModel.BatteryText}"
+                : "Sony Tray — not connected";
         });
         _session.Start();
     }

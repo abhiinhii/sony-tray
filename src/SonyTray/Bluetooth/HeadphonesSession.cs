@@ -1,9 +1,9 @@
 using System.IO;
 using System.Runtime.InteropServices;
 using SonyProtocol;
-using XM5Control.Services;
+using SonyTray.Services;
 
-namespace XM5Control.Bluetooth;
+namespace SonyTray.Bluetooth;
 
 public enum SessionState
 {

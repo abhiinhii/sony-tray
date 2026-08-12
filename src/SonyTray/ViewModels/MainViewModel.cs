@@ -4,10 +4,10 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Threading;
 using SonyProtocol;
-using XM5Control.Bluetooth;
-using XM5Control.Services;
+using SonyTray.Bluetooth;
+using SonyTray.Services;
 
-namespace XM5Control.ViewModels;
+namespace SonyTray.ViewModels;
 
 public sealed class MainViewModel : INotifyPropertyChanged
 {

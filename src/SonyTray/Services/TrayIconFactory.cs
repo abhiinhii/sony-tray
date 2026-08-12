@@ -1,7 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 
-namespace XM5Control.Services;
+namespace SonyTray.Services;
 
 public static class TrayIconFactory
 {

@@ -14,7 +14,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <AssemblyTitle>XM5 Control</AssemblyTitle>
+    <AssemblyTitle>Sony Tray</AssemblyTitle>
   </PropertyGroup>
 
 </Project>

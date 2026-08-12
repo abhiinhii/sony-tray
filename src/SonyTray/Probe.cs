@@ -1,10 +1,10 @@
 using System.Runtime.InteropServices;
 using SonyProtocol;
-using XM5Control.Bluetooth;
+using SonyTray.Bluetooth;
 
-namespace XM5Control;
+namespace SonyTray;
 
-/// <summary>`XM5Control.exe --probe` — console connectivity test without the UI.</summary>
+/// <summary>`SonyTray.exe --probe` — console connectivity test without the UI.</summary>
 public static class Probe
 {
     [DllImport("kernel32.dll")]
@@ -16,13 +16,13 @@ public static class Probe
     private static void Say(string s)
     {
         Console.WriteLine(s);
-        XM5Control.Services.Log.Info("[probe] " + s);
+        SonyTray.Services.Log.Info("[probe] " + s);
     }
 
     public static async Task<int> RunAsync()
     {
         AllocConsole();
-        Say("XM5 Control probe — Ctrl+C or Enter to exit.");
+        Say("Sony Tray probe — Ctrl+C or Enter to exit.");
         await using var session = new HeadphonesSession();
         session.StateChanged += s => Say($"[state] {s}");
         session.DeviceUpdated += e => Say($"[event] {e}");
