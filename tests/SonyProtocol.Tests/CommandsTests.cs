@@ -51,4 +51,10 @@ public class CommandsTests
         Assert.Throws<ArgumentOutOfRangeException>(() => Commands.SetEqBands(EqPreset.Manual, 0, [0, 0, 0, 0]));
         Assert.Throws<ArgumentOutOfRangeException>(() => Commands.SetEqBands(EqPreset.Manual, 0, [0, 0, 0, 0, 11]));
     }
+
+    [Fact]
+    public void PowerOff_MatchesReferenceBytes()
+    {
+        Assert.Equal([0x24, 0x03, 0x01], Commands.PowerOff());
+    }
 }

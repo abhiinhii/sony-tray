@@ -43,6 +43,9 @@ public static class Commands
     public static byte[] GetEq() => [0x56, 0x00];
     public static byte[] GetBattery() => [0x22, 0x00];
 
+    // POWER_SET_STATUS(0x24), PowerInquiredType::POWER_OFF(0x03), PowerOffSettingValue::USER_POWER_OFF(0x01)
+    public static byte[] PowerOff() => [0x24, 0x03, 0x01];
+
     public static byte[] SetNcAmb(NcAmbMode mode, int ambientLevel, bool focusOnVoice)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(ambientLevel, 0);

@@ -4,6 +4,9 @@
         Title="Sony Tray" Width="340" SizeToContent="Height"
         WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False"
         Topmost="True" AllowsTransparency="True" Background="Transparent">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    </Window.Resources>
     <Border Background="#F2242424" CornerRadius="8" Padding="16" Margin="8"
             BorderBrush="#3FFFFFFF" BorderThickness="1">
         <Border.Effect>
@@ -12,6 +15,19 @@
         <StackPanel>
             <DockPanel Margin="0,0,0,12">
                 <TextBlock Text="WH-1000XM5" Foreground="White" FontSize="16" FontWeight="SemiBold"/>
+                <Button DockPanel.Dock="Right" Content="&#x23FB;" FontSize="14" Foreground="#B0FFFFFF"
+                        Background="Transparent" BorderThickness="0" Padding="6,0" Cursor="Hand"
+                        Margin="6,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Right"
+                        ToolTip="Turn off headphones" Command="{Binding PowerOffCommand}"
+                        IsEnabled="{Binding IsConnected}"
+                        Visibility="{Binding PowerOffVisible, Converter={StaticResource BoolToVis}}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
                 <TextBlock Text="{Binding BatteryText}" Foreground="#B0FFFFFF" FontSize="14"
                            DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
             </DockPanel>

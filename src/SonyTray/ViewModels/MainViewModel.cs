@@ -7,6 +7,8 @@ using SonyProtocol;
 using SonyTray.Bluetooth;
 using SonyTray.Services;
 
+// RelayCommand (used below) is declared directly under the SonyTray namespace in App.xaml.cs;
+// it resolves here without a `using` because SonyTray.ViewModels is a nested namespace of SonyTray.
 namespace SonyTray.ViewModels;
 
 public sealed class MainViewModel : INotifyPropertyChanged
@@ -21,6 +23,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _session = session;
         _ambientDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _ambientDebounce.Tick += (_, _) => { _ambientDebounce.Stop(); PushMode(); };
+        PowerOffCommand = new RelayCommand(() => _ = PushAsync(() => _session.PowerOffAsync()));
         session.StateChanged += s => OnUi(() => ApplyState(s));
         session.DeviceUpdated += e => OnUi(() => ApplyEvent(e));
     }
@@ -30,6 +33,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private bool _isConnected;
     public bool IsConnected { get => _isConnected; private set { Set(ref _isConnected, value); ConnectionChanged?.Invoke(value); } }
+
+    public RelayCommand PowerOffCommand { get; }
+
+    // Default true until Task 15 wires this to device capabilities.
+    private bool _powerOffVisible = true;
+    public bool PowerOffVisible { get => _powerOffVisible; set => Set(ref _powerOffVisible, value); }
 
     private string _statusText = "Searching for headphones…";
     public string StatusText { get => _statusText; private set => Set(ref _statusText, value); }

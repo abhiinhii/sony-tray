@@ -191,6 +191,10 @@ public sealed class HeadphonesSession : IAsyncDisposable
     public Task SetEqBandsAsync(EqPreset preset, int clearBass, int[] bands) =>
         SendCommandAsync(SonyProtocol.Commands.SetEqBands(preset, clearBass, bands), _cts.Token);
 
+    // Device ACKs then drops the RFCOMM link; the reconnect loop's normal path handles the drop.
+    public Task PowerOffAsync() =>
+        SendCommandAsync(SonyProtocol.Commands.PowerOff(), _cts.Token);
+
     public async Task RefreshAsync()
     {
         CancellationToken ct = _cts.Token;
