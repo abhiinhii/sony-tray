@@ -43,6 +43,10 @@ public partial class App : Application
         _flyout = new FlyoutWindow { DataContext = _viewModel };
 
         var menu = new ContextMenu();
+        var startupItem = new MenuItem { Header = "Start with Windows", IsCheckable = true, IsChecked = StartupManager.IsEnabled() };
+        startupItem.Click += (_, _) => StartupManager.SetEnabled(startupItem.IsChecked);
+        menu.Items.Add(startupItem);
+        menu.Items.Add(new Separator());
         var exitItem = new MenuItem { Header = "Exit" };
         exitItem.Click += (_, _) => Shutdown();
         menu.Items.Add(exitItem);
