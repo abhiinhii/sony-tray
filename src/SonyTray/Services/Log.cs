@@ -25,7 +25,7 @@ public static class Log
                     File.Move(File_, Path.Combine(Dir, "app.1.log"), overwrite: true);
                 File.AppendAllText(File_, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level}] {message}{Environment.NewLine}");
             }
-            catch (IOException) { /* logging must never crash the app */ }
+            catch (Exception) { /* logging must never crash the app */ }
         }
     }
 }

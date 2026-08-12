@@ -28,7 +28,15 @@ public partial class App : Application
             // the wrong exit code). Probe mode never creates a window/dispatcher-owned resource,
             // so there is nothing that needs a graceful WPF shutdown — exit the process directly
             // and deterministically instead.
-            Probe.RunAsync().ContinueWith(t => Environment.Exit(t.Result));
+            Probe.RunAsync().ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                {
+                    Services.Log.Error($"Probe faulted: {t.Exception?.GetBaseException().Message}");
+                    Environment.Exit(1);
+                }
+                Environment.Exit(t.Result);
+            });
             return;
         }
         _instanceMutex = new Mutex(initiallyOwned: true, "SonyTray-SingleInstance", out bool isNew);
@@ -65,6 +73,15 @@ public partial class App : Application
                 ? $"Sony Tray — connected, battery {_viewModel.BatteryText}"
                 : "Sony Tray — not connected";
         });
+        _viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(MainViewModel.BatteryText)) return;
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (_viewModel.IsConnected)
+                    _trayIcon.ToolTipText = $"Sony Tray — connected, battery {_viewModel.BatteryText}";
+            });
+        };
         _session.Start();
     }
 

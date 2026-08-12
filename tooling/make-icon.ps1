@@ -7,14 +7,14 @@
     .ico container whose one image is a PNG (Windows Vista+ supports PNG-compressed
     ICO entries, which keeps this file small and avoids hand-rolling a BMP/DIB mask).
 
-    Visual language (original artwork - see .superpowers/sdd/task-13-brief.md and
-    the amended global constraint prohibiting imitation of Sony's Headphones Connect
+    Visual language (original artwork; a single 256px PNG-payload ICO honoring
+    the global constraint prohibiting imitation of Sony's Headphones Connect
     icon or any Sony logo):
       - Rounded-square badge, r=48, filled with a vertical linear gradient
         #1976D2 (top) -> #0D47A1 (bottom).
       - White headphone glyph: a rounded-cap arc headband plus two rounded-rect
-        ear cups, mirrored left/right of center. The brief gives one ear-cup
-        rect (40,140,52,76,r=18); the second cup is that same rect mirrored
+        ear cups, mirrored left/right of center. One ear-cup rect is drawn at
+        (40,140,52,76,r=18); the second cup is that same rect mirrored
         horizontally (x' = 256 - 40 - 52 = 164) so the glyph reads as a pair of
         headphones rather than two cups stacked on top of each other.
     TrayIconFactory.cs (32px runtime tray icon) and this script intentionally

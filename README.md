@@ -46,6 +46,8 @@ Logs are written to `%AppData%\SonyTray\logs\app.log`, including raw frame hex f
 
 The protocol implementation was ported from [SonyHeadphonesClient](https://github.com/mos9527/SonyHeadphonesClient) (MIT), originally by [Plutoberth](https://github.com/Plutoberth/SonyHeadphonesClient).
 
+Tray icon via [Hardcodet.NotifyIcon.Wpf](https://github.com/hardcodet/wpf-notifyicon) (Code Project Open License).
+
 Sony Tray is MIT licensed — see [LICENSE](LICENSE).
 
 Sony Tray is not affiliated with, endorsed by, or sponsored by Sony. "Sony" and related product names are trademarks of Sony Group Corporation, used here only to describe compatibility.
