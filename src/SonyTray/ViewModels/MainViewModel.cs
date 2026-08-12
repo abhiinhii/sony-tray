@@ -33,6 +33,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _suppressSend; // true while applying device state to the UI
     private NcAmbMode _mode = NcAmbMode.NoiseCancelling;
     private bool _isTenBandEq;
+    private DeviceCapabilities? _capabilities;
 
     public MainViewModel(HeadphonesSession session)
     {
@@ -262,10 +263,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void ApplyCapabilities(DeviceCapabilities caps)
     {
+        _capabilities = caps;
         DeviceName = caps.DeviceName;
         HasNcChip = caps.HasNcMode;
         HasEqSection = caps.HasEq;
         PowerOffVisible = caps.HasPowerOff;
+
+        // Reset cached battery readings BEFORE the capability-driven queries repopulate them —
+        // otherwise a reconnect to a device with a different battery layout would compose stale
+        // readings from the previous device (RecomputeBatteryText branches on cached-field-non-null,
+        // not on the newly-resolved capabilities).
+        _singleLevel = null;
+        _leftLevel = null;
+        _rightLevel = null;
+        _cradleLevel = null;
+        RecomputeBatteryText();
     }
 
     private void ApplyEvent(DeviceEvent evt)
@@ -313,10 +325,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void RecomputeBatteryText()
     {
+        // Second gate (belt-and-braces alongside the cache reset in ApplyCapabilities): only
+        // compose a part if the current device actually announced that battery kind, so a cached
+        // reading that somehow survived a capability change still can't leak into the text.
+        IReadOnlyList<BatteryKind>? kinds = _capabilities?.Batteries;
+        bool hasLr = kinds is null || kinds.Contains(BatteryKind.LeftRight);
+        bool hasSingle = kinds is null || kinds.Contains(BatteryKind.Single);
+        bool hasCradle = kinds is null || kinds.Contains(BatteryKind.Cradle);
+
         string core;
-        if (_leftLevel is int l && _rightLevel is int r)
+        if (hasLr && _leftLevel is int l && _rightLevel is int r)
             core = $"L {FormatBatteryPart(l, _leftCharging)} · R {FormatBatteryPart(r, _rightCharging)}";
-        else if (_singleLevel is int s)
+        else if (hasSingle && _singleLevel is int s)
             core = FormatBatteryPart(s, _singleCharging);
         else
         {
@@ -324,7 +344,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        if (_cradleLevel is int c)
+        if (hasCradle && _cradleLevel is int c)
             core += $" · Case {FormatBatteryPart(c, _cradleCharging)}";
 
         BatteryText = core;
