@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Threading;
@@ -94,6 +95,84 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _ = PushAsync(() => _session.SetNcAmbAsync(mode, (int)AmbientLevel, FocusOnVoice));
     }
 
+    public sealed record EqPresetChoice(EqPreset Id, string Name);
+
+    public IReadOnlyList<EqPresetChoice> EqPresets { get; } =
+    [
+        new(EqPreset.Off, "Off"),
+        new(EqPreset.Bright, "Bright"),
+        new(EqPreset.Excited, "Excited"),
+        new(EqPreset.Mellow, "Mellow"),
+        new(EqPreset.Relaxed, "Relaxed"),
+        new(EqPreset.Vocal, "Vocal"),
+        new(EqPreset.TrebleBoost, "Treble Boost"),
+        new(EqPreset.BassBoost, "Bass Boost"),
+        new(EqPreset.Speech, "Speech"),
+        new(EqPreset.Manual, "Manual"),
+        new(EqPreset.Custom1, "Custom 1"),
+        new(EqPreset.Custom2, "Custom 2"),
+    ];
+
+    private EqPresetChoice? _selectedEqPreset;
+    public EqPresetChoice? SelectedEqPreset
+    {
+        get => _selectedEqPreset;
+        set
+        {
+            if (Set(ref _selectedEqPreset, value))
+            {
+                Raise(nameof(EqBandsEditable));
+                if (!_suppressSend && value is not null)
+                    _ = PushAsync(() => _session.SetEqPresetAsync(value.Id));
+            }
+        }
+    }
+
+    private bool _eqAvailable = true;
+    public bool EqAvailable { get => _eqAvailable; private set { Set(ref _eqAvailable, value); Raise(nameof(EqBandsEditable)); } }
+
+    public bool EqBandsEditable =>
+        IsConnected && EqAvailable && SelectedEqPreset is { Id: >= EqPreset.Manual };
+
+    private readonly double[] _bands = new double[5];
+    private double _clearBass;
+    public double ClearBass { get => _clearBass; set { if (Set(ref _clearBass, Math.Clamp(Math.Round(value), -10, 10)) && !_suppressSend) DebounceBands(); } }
+    public double Band1 { get => _bands[0]; set => SetBand(0, value); }
+    public double Band2 { get => _bands[1]; set => SetBand(1, value); }
+    public double Band3 { get => _bands[2]; set => SetBand(2, value); }
+    public double Band4 { get => _bands[3]; set => SetBand(3, value); }
+    public double Band5 { get => _bands[4]; set => SetBand(4, value); }
+
+    private void SetBand(int i, double value, [CallerMemberName] string? name = null)
+    {
+        double clamped = Math.Clamp(Math.Round(value), -10, 10);
+        if (_bands[i] == clamped) return;
+        _bands[i] = clamped;
+        Raise(name);
+        if (!_suppressSend) DebounceBands();
+    }
+
+    private DispatcherTimer? _bandsDebounce;
+    private void DebounceBands()
+    {
+        _bandsDebounce ??= CreateBandsDebounce();
+        _bandsDebounce.Stop();
+        _bandsDebounce.Start();
+    }
+
+    private DispatcherTimer CreateBandsDebounce()
+    {
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (SelectedEqPreset is not { } preset) return;
+            _ = PushAsync(() => _session.SetEqBandsAsync(preset.Id, (int)ClearBass,
+                [(int)Band1, (int)Band2, (int)Band3, (int)Band4, (int)Band5]));
+        };
+        return timer;
+    }
+
     /// <summary>Optimistic send; on failure re-sync UI from the device so it never lies.</summary>
     private async Task PushAsync(Func<Task> send)
     {
@@ -120,6 +199,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _ => "Not connected — is the headset on?",
         };
         Raise(nameof(AmbientControlsEnabled));
+        Raise(nameof(EqBandsEditable));
     }
 
     private void ApplyEvent(DeviceEvent evt)
@@ -148,8 +228,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    // Replaced with real EQ handling in Task 9.
-    private void ApplyEqEvent(DeviceEvent evt) { }
+    private void ApplyEqEvent(DeviceEvent evt)
+    {
+        switch (evt)
+        {
+            case EqStatusEvent e:
+                EqAvailable = e.Available;
+                break;
+            case EqEvent e:
+                SelectedEqPreset = EqPresets.FirstOrDefault(p => p.Id == e.Preset)
+                    ?? new EqPresetChoice(e.Preset, $"Preset 0x{(byte)e.Preset:X2}");
+                if (e.Bands.Length == 5)
+                {
+                    ClearBass = e.ClearBass;
+                    Band1 = e.Bands[0]; Band2 = e.Bands[1]; Band3 = e.Bands[2];
+                    Band4 = e.Bands[3]; Band5 = e.Bands[4];
+                }
+                break;
+        }
+    }
 
     private static void OnUi(Action action)
     {
