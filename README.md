@@ -46,26 +46,31 @@ iwr https://github.com/abhiinhii/sony-tray/releases/latest/download/SonyTray.exe
 > [!NOTE]
 > Your headphones must already be paired to Windows (Settings → Bluetooth). Windows SmartScreen may warn on first run because the exe is unsigned — choose *More info → Run anyway*.
 
-### 🍎 macOS — build from source
+### 🍎 macOS — three commands
 
 A native Swift menu-bar app lives in [`macos/`](macos). It needs only the Xcode Command Line
-Tools — no full Xcode, no runtime:
+Tools (`xcode-select --install`) — no full Xcode, no runtime, no installer:
 
 ```bash
-cd macos && make run
+git clone https://github.com/abhiinhii/sony-tray.git
+cd sony-tray/macos
+make install
 ```
 
-That produces a universal `SonyTray.app` and launches it; the headphones glyph appears in your
-menu bar. macOS asks for Bluetooth permission on first launch — grant it, or the app can't reach
-the headset. Your headphones must also be **connected** to the Mac, not merely paired. See
-[macos/README.md](macos/README.md) for details.
+That builds a universal `SonyTray.app`, copies it to `/Applications`, and you launch it with
+`open /Applications/SonyTray.app`. A headphones glyph appears in your menu bar — left-click for the
+controls, right-click for Launch at Login and Quit.
 
-Verified on a WH-1000XM5: full handshake, capability discovery, battery, EQ, and live NC/Ambient
-switching.
+> [!NOTE]
+> **macOS 13+.** Grant the Bluetooth permission prompt on first launch, or the app can't reach the
+> headset. Your headphones must also be **connected** to the Mac — paired alone is not enough, and
+> it's the most common reason it looks broken. Full detail, diagnostics, and troubleshooting in
+> **[macos/README.md](macos/README.md)**.
 
 <sub>Why Swift rather than shared .NET: macOS has no .NET bindings for IOBluetooth, which is the
 only way to reach classic-Bluetooth RFCOMM on a Mac. The protocol core is ported one-for-one
-instead, and the C# test suite came with it.</sub>
+instead, and the C# test suite came with it. Verified on a WH-1000XM5 — full handshake, capability
+discovery, battery, EQ, and live NC/Ambient switching.</sub>
 
 ## 🎧 Supported devices
 

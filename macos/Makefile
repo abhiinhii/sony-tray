@@ -35,7 +35,7 @@ else
 TARGETS := $(ARCH)-apple-macos$(DEPLOY)
 endif
 
-.PHONY: all test app run probe snapshot clean
+.PHONY: all test app run probe snapshot install uninstall clean
 
 all: app
 
@@ -102,6 +102,23 @@ probe: app
 # Flyout layout smoke test — renders the popover offscreen to a PNG. No Bluetooth involved.
 snapshot: app
 	@$(APP)/Contents/MacOS/SonyTray --snapshot $(BUILD)/flyout.png
+
+# Install into /Applications. Worth doing rather than running from build/: SMAppService registers
+# the bundle at its current path as the login item, so "Launch at Login" only survives if the app
+# lives somewhere stable. Override with `make install PREFIX=~/Applications`.
+PREFIX ?= /Applications
+
+install: app
+	@pkill -x SonyTray 2>/dev/null || true
+	@rm -rf "$(PREFIX)/SonyTray.app"
+	@mkdir -p "$(PREFIX)"
+	@cp -R $(APP) "$(PREFIX)/"
+	@echo "installed $(PREFIX)/SonyTray.app  —  open it with: open '$(PREFIX)/SonyTray.app'"
+
+uninstall:
+	@pkill -x SonyTray 2>/dev/null || true
+	@rm -rf "$(PREFIX)/SonyTray.app"
+	@echo "removed $(PREFIX)/SonyTray.app (logs remain in ~/Library/Logs/SonyTray)"
 
 clean:
 	@rm -rf $(BUILD)

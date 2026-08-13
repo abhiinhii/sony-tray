@@ -3,31 +3,81 @@
 A native menu-bar controller for Sony headphones — the macOS counterpart of the Windows tray app
 in [`../src`](../src).
 
-## Build
+## Install
 
-Needs only the Xcode **Command Line Tools** (`xcode-select --install`) — no full Xcode.
+There is no prebuilt download — the app is unsigned, and macOS would quarantine a downloaded
+unsigned bundle. Building it yourself takes about a minute and avoids that entirely.
+
+**Requirements:** macOS 13 (Ventura) or later, Apple Silicon or Intel, and the Xcode Command Line
+Tools. Full Xcode is *not* needed. If you don't have the tools:
 
 ```bash
-make test    # protocol conformance suite (64 tests)
-make app     # universal SonyTray.app in build/
-make run     # build, then launch
-make probe   # console connectivity harness
+xcode-select --install
+```
+
+**Install:**
+
+```bash
+git clone https://github.com/abhiinhii/sony-tray.git
+cd sony-tray/macos
+make install
+```
+
+That builds a universal `SonyTray.app` and copies it to `/Applications`. To put it somewhere else:
+
+```bash
+make install PREFIX=~/Applications
+```
+
+**Then launch it:**
+
+```bash
+open /Applications/SonyTray.app
+```
+
+The app is menu-bar only — a headphones glyph appears in your menu bar, and nothing appears in the
+Dock or the app switcher. Left-click it for the controls; right-click for **Launch at Login**,
+**Reveal Logs**, and **Quit**.
+
+Three things to expect on first launch:
+
+1. **A Bluetooth permission prompt.** Grant it — the app is blocked until you answer, and it can
+   never reach your headphones if you decline. You can change your mind later in System Settings ›
+   Privacy & Security › Bluetooth.
+2. **Your headphones must be paired *and connected*** to this Mac, not merely paired. See
+   [the section below](#the-headset-must-be-connected-not-just-paired) — this is the single most
+   common reason it appears not to work.
+3. **Install it before enabling Launch at Login.** `SMAppService` registers the bundle at whatever
+   path it currently occupies, so a login item pointing into a `build/` directory breaks as soon as
+   you clean or move it.
+
+To update, pull and re-run `make install`. To remove it:
+
+```bash
+make uninstall
+```
+
+Logs are left behind in `~/Library/Logs/SonyTray`; delete that folder too if you want no trace.
+
+## Build
+
+```bash
+make test      # protocol conformance suite (64 tests)
+make app       # universal SonyTray.app in build/
+make run       # build, then launch from build/ without installing
+make probe     # console connectivity harness
+make snapshot  # render the flyout offscreen to a PNG
+make install   # build and copy into /Applications
 ```
 
 `make app UNIVERSAL=0` builds only for this machine (faster). `CONFIG=debug` swaps `-O` for
 `-Onone -g`.
 
-## First run
-
-The app is menu-bar only (`LSUIElement`) — look for the headphones glyph in the menu bar, not the
-Dock.
-
-macOS gates IOBluetooth behind the Bluetooth privacy permission, so **the first launch shows a
-permission prompt**; the app is blocked until you answer it. Grant it, or the app can never reach
-the headphones. You can revisit the decision in System Settings › Privacy & Security › Bluetooth.
+## Running from a build tree
 
 The bundle is signed ad-hoc, so its code identity changes on every rebuild and macOS asks for
-Bluetooth permission again after one. That is expected; a Developer ID signature would avoid it.
+Bluetooth permission again after one. That is expected during development; a Developer ID
+signature would avoid it.
 
 > [!IMPORTANT]
 > Launch the **app bundle** (`make run`, or `open build/SonyTray.app`), not the inner binary.
@@ -36,9 +86,6 @@ Bluetooth permission again after one. That is expected; a Developer ID signature
 > even though the bundle carries the usage description. `make probe` is the same story — if you
 > want probe output in a terminal, grant your terminal Bluetooth access first, otherwise read the
 > log file.
-
-Left-click the menu-bar icon for the flyout; right-click for Launch at Login, Reveal Logs, and
-Quit.
 
 ## The headset must be *connected*, not just paired
 
