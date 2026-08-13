@@ -46,26 +46,31 @@ iwr https://github.com/abhiinhii/sony-tray/releases/latest/download/SonyTray.exe
 > [!NOTE]
 > Your headphones must already be paired to Windows (Settings → Bluetooth). Windows SmartScreen may warn on first run because the exe is unsigned — choose *More info → Run anyway*.
 
-### 🍎 macOS — three commands
+### 🍎 macOS — one step
 
-A native Swift menu-bar app lives in [`macos/`](macos). It needs only the Xcode Command Line
-Tools (`xcode-select --install`) — no full Xcode, no runtime, no installer:
+**[⬇ Download SonyTray-macos-universal.zip](https://github.com/abhiinhii/sony-tray/releases/latest/download/SonyTray-macos-universal.zip)** (316 KB, universal — Apple Silicon and Intel).
+
+<sub>Or the whole thing from a terminal:</sub>
 
 ```bash
-git clone https://github.com/abhiinhii/sony-tray.git
-cd sony-tray/macos
-make install
+curl -L -o ~/Downloads/SonyTray.zip https://github.com/abhiinhii/sony-tray/releases/latest/download/SonyTray-macos-universal.zip
+ditto -x -k ~/Downloads/SonyTray.zip /Applications
+xattr -dr com.apple.quarantine /Applications/SonyTray.app
+open /Applications/SonyTray.app
 ```
 
-That builds a universal `SonyTray.app`, copies it to `/Applications`, and you launch it with
-`open /Applications/SonyTray.app`. A headphones glyph appears in your menu bar — left-click for the
-controls, right-click for Launch at Login and Quit.
+A headphones glyph appears in your menu bar — left-click for the controls, right-click for Launch
+at Login and Quit. Nothing else to install: macOS 13+ is the only requirement, and the app links
+only against libraries that ship with the OS.
 
 > [!NOTE]
-> **macOS 13+.** Grant the Bluetooth permission prompt on first launch, or the app can't reach the
-> headset. Your headphones must also be **connected** to the Mac — paired alone is not enough, and
-> it's the most common reason it looks broken. Full detail, diagnostics, and troubleshooting in
-> **[macos/README.md](macos/README.md)**.
+> The `xattr` line is needed because the app is signed but **not notarized** — macOS otherwise
+> quarantines the download and refuses to launch it. Prefer clicking? Unzip, drag to Applications,
+> then **System Settings › Privacy & Security › Open Anyway**.
+> Grant the Bluetooth permission prompt on first launch, and note your headphones must be
+> **connected** to the Mac — paired alone is not enough, and it's the most common reason it looks
+> broken. Building from source instead (`cd macos && make install`) skips quarantine entirely.
+> Full detail in **[macos/README.md](macos/README.md)**.
 
 <sub>Why Swift rather than shared .NET: macOS has no .NET bindings for IOBluetooth, which is the
 only way to reach classic-Bluetooth RFCOMM on a Mac. The protocol core is ported one-for-one

@@ -35,7 +35,7 @@ else
 TARGETS := $(ARCH)-apple-macos$(DEPLOY)
 endif
 
-.PHONY: all test app run probe snapshot install uninstall clean
+.PHONY: all test app run probe snapshot install uninstall dist verify-portable clean
 
 all: app
 
@@ -119,6 +119,32 @@ uninstall:
 	@pkill -x SonyTray 2>/dev/null || true
 	@rm -rf "$(PREFIX)/SonyTray.app"
 	@echo "removed $(PREFIX)/SonyTray.app (logs remain in ~/Library/Logs/SonyTray)"
+
+# Zip for distribution, so people can install without a Swift toolchain at all. ditto rather than
+# `zip`: it preserves the code signature and resource forks that make the bundle launchable.
+DIST := SonyTray-macos-universal.zip
+
+dist: app verify-portable
+	@rm -f $(BUILD)/$(DIST)
+	@cd $(BUILD) && ditto -c -k --keepParent --sequesterRsrc SonyTray.app $(DIST)
+	@echo "packaged $(BUILD)/$(DIST) ($$(du -h $(BUILD)/$(DIST) | cut -f1))"
+
+# Guard the promise that the app needs nothing installed: every linked library must come from the
+# OS, and both slices must be present and deploy back to $(DEPLOY). Fails the build if not, so a
+# stray dependency can't be shipped by accident.
+verify-portable: app
+	@bin=$(APP)/Contents/MacOS/SonyTray; \
+	fail=0; \
+	for a in arm64 x86_64; do \
+		lipo -info $$bin | grep -q $$a || { echo "FAIL: $$a slice missing"; fail=1; continue; }; \
+		ext=$$(otool -arch $$a -L $$bin | tail -n +2 | awk '{print $$1}' \
+			| grep -vE '^/usr/lib/|^/System/' || true); \
+		[ -z "$$ext" ] || { echo "FAIL: $$a links non-system libraries:"; echo "$$ext"; fail=1; }; \
+		minos=$$(otool -arch $$a -l $$bin | grep -A3 LC_BUILD_VERSION | awk '/minos/{print $$2}'); \
+		[ "$$minos" = "$(DEPLOY)" ] || { echo "FAIL: $$a minos $$minos, expected $(DEPLOY)"; fail=1; }; \
+	done; \
+	[ $$fail -eq 0 ] || exit 1; \
+	echo "  portable: universal, macOS $(DEPLOY)+, no non-system dependencies"
 
 clean:
 	@rm -rf $(BUILD)
