@@ -5,35 +5,52 @@ in [`../src`](../src).
 
 ## Install
 
-There is no prebuilt download — the app is unsigned, and macOS would quarantine a downloaded
-unsigned bundle. Building it yourself takes about a minute and avoids that entirely.
+**Requirements: macOS 13 (Ventura) or later. Nothing else.** The app is a universal binary — Apple
+Silicon and Intel — and links only against libraries that ship with macOS. No runtime, no
+frameworks, no Homebrew, no Xcode.
 
-**Requirements:** macOS 13 (Ventura) or later, Apple Silicon or Intel, and the Xcode Command Line
-Tools. Full Xcode is *not* needed. If you don't have the tools:
+### Option 1 — download (nothing to install)
 
-```bash
-xcode-select --install
-```
-
-**Install:**
+**[⬇ SonyTray-macos-universal.zip](https://github.com/abhiinhii/sony-tray/releases/latest/download/SonyTray-macos-universal.zip)** (316 KB), or from a terminal:
 
 ```bash
-git clone https://github.com/abhiinhii/sony-tray.git
-cd sony-tray/macos
-make install
-```
-
-That builds a universal `SonyTray.app` and copies it to `/Applications`. To put it somewhere else:
-
-```bash
-make install PREFIX=~/Applications
-```
-
-**Then launch it:**
-
-```bash
+curl -L -o ~/Downloads/SonyTray.zip https://github.com/abhiinhii/sony-tray/releases/latest/download/SonyTray-macos-universal.zip
+ditto -x -k ~/Downloads/SonyTray.zip /Applications
+xattr -dr com.apple.quarantine /Applications/SonyTray.app
 open /Applications/SonyTray.app
 ```
+
+That third line matters. The app is signed ad-hoc but **not notarized** — Apple notarization needs
+a paid Developer account — so macOS quarantines it on download and refuses to launch it with
+*"SonyTray is damaged"* or *"cannot be opened"*. Stripping the quarantine attribute is what makes
+it launch, and it is also your cue to only do this for software you trust.
+
+Prefer clicking? Unzip, drag `SonyTray.app` to Applications, then open **System Settings › Privacy
+& Security**, scroll to the message about SonyTray being blocked, and choose **Open Anyway**.
+(Control-click → Open also worked on macOS 13 and 14, but Sequoia removed that shortcut for
+unnotarized apps.)
+
+### Option 2 — build from source
+
+Needs the Xcode **Command Line Tools** — Apple's own free package, not a third-party dependency.
+Full Xcode is *not* required.
+
+```bash
+xcode-select --install          # skip if you already have them
+git clone https://github.com/abhiinhii/sony-tray.git
+cd sony-tray/macos
+make install                    # builds universal, copies to /Applications
+open /Applications/SonyTray.app
+```
+
+Building locally sidesteps quarantine entirely — no `xattr` step needed. Install elsewhere with
+`make install PREFIX=~/Applications`.
+
+`make dist` produces the same zip that ships in releases, and `make verify-portable` asserts the
+result is universal, deploys to macOS 13, and links nothing outside `/usr/lib` and `/System`. The
+`dist` target runs that check automatically, so a stray dependency can't ship by accident.
+
+### After installing, either way
 
 The app is menu-bar only — a headphones glyph appears in your menu bar, and nothing appears in the
 Dock or the app switcher. Left-click it for the controls; right-click for **Launch at Login**,
@@ -51,23 +68,23 @@ Three things to expect on first launch:
    path it currently occupies, so a login item pointing into a `build/` directory breaks as soon as
    you clean or move it.
 
-To update, pull and re-run `make install`. To remove it:
+**To update:** download the current zip again, or `git pull && make install`.
 
-```bash
-make uninstall
-```
-
-Logs are left behind in `~/Library/Logs/SonyTray`; delete that folder too if you want no trace.
+**To remove:** drag `SonyTray.app` to the Trash, or run `make uninstall` from `macos/`. Logs are
+left behind in `~/Library/Logs/SonyTray`; delete that folder too if you want no trace.
 
 ## Build
 
 ```bash
-make test      # protocol conformance suite (64 tests)
-make app       # universal SonyTray.app in build/
-make run       # build, then launch from build/ without installing
-make probe     # console connectivity harness
-make snapshot  # render the flyout offscreen to a PNG
-make install   # build and copy into /Applications
+make test             # protocol conformance suite (64 tests)
+make app              # universal SonyTray.app in build/
+make run              # build, then launch from build/ without installing
+make probe            # console connectivity harness
+make snapshot         # render the flyout offscreen to a PNG
+make install          # build and copy into /Applications
+make dist             # zip for distribution (runs verify-portable first)
+make verify-portable  # assert universal, macOS 13+, no non-system dependencies
+make uninstall        # remove the installed copy
 ```
 
 `make app UNIVERSAL=0` builds only for this machine (faster). `CONFIG=debug` swaps `-O` for
