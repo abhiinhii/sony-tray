@@ -483,3 +483,8 @@ $RECYCLE.BIN/
 # Vim temporary swap files
 *.swp
 .superpowers/
+
+# macOS port build output (swiftc via macos/Makefile, and SwiftPM if used)
+macos/build/
+macos/.build/
+.DS_Store

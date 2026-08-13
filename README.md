@@ -8,9 +8,10 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D4?logo=windows&logoColor=white)](#-install)
+[![macOS](https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=white)](macos)
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Release](https://img.shields.io/github/v/release/abhiinhii/sony-tray?color=1976D2)](https://github.com/abhiinhii/sony-tray/releases/latest)
-[![Tests](https://img.shields.io/badge/tests-63%20passing-brightgreen)](tests/SonyProtocol.Tests)
+[![Tests](https://img.shields.io/badge/tests-63%20C%23%20%C2%B7%2064%20Swift-brightgreen)](tests/SonyProtocol.Tests)
 
 <img src="docs/screenshot.png" width="340" alt="Sony Tray flyout — noise cancelling, ambient level, equalizer, battery, power off"/>
 
@@ -45,9 +46,26 @@ iwr https://github.com/abhiinhii/sony-tray/releases/latest/download/SonyTray.exe
 > [!NOTE]
 > Your headphones must already be paired to Windows (Settings → Bluetooth). Windows SmartScreen may warn on first run because the exe is unsigned — choose *More info → Run anyway*.
 
-### 🍎 macOS — planned
+### 🍎 macOS — build from source
 
-The protocol core is portable .NET and carries over as-is, but the Bluetooth transport and menu-bar UI must be built **and tested on a Mac** — that port hasn't happened yet. Until then, Mac users can try the cross-platform [SonyHeadphonesClient](https://github.com/mos9527/SonyHeadphonesClient), which supports macOS today.
+A native Swift menu-bar app lives in [`macos/`](macos). It needs only the Xcode Command Line
+Tools — no full Xcode, no runtime:
+
+```bash
+cd macos && make run
+```
+
+That produces a universal `SonyTray.app` and launches it; the headphones glyph appears in your
+menu bar. macOS asks for Bluetooth permission on first launch — grant it, or the app can't reach
+the headset. Your headphones must also be **connected** to the Mac, not merely paired. See
+[macos/README.md](macos/README.md) for details.
+
+Verified on a WH-1000XM5: full handshake, capability discovery, battery, EQ, and live NC/Ambient
+switching.
+
+<sub>Why Swift rather than shared .NET: macOS has no .NET bindings for IOBluetooth, which is the
+only way to reach classic-Bluetooth RFCOMM on a Mac. The protocol core is ported one-for-one
+instead, and the C# test suite came with it.</sub>
 
 ## 🎧 Supported devices
 
@@ -63,10 +81,18 @@ Sony Tray speaks the reverse-engineered Sony MDR v2 protocol directly over Bluet
 
 ## 🛠️ Build from source
 
+Windows:
+
 ```bash
 dotnet build
 dotnet test
 dotnet publish src/SonyTray -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
+```
+
+macOS:
+
+```bash
+cd macos && make test && make app
 ```
 
 ## 🩺 Diagnostics
