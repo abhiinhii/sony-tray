@@ -48,7 +48,7 @@ iwr https://github.com/abhiinhii/sony-tray/releases/latest/download/SonyTray.exe
 
 ### 🍎 macOS — one step
 
-**[⬇ Download SonyTray-macos-universal.zip](https://github.com/abhiinhii/sony-tray/releases/latest/download/SonyTray-macos-universal.zip)** (316 KB, universal — Apple Silicon and Intel).
+**[⬇ Download SonyTray-macos-universal.zip](https://github.com/abhiinhii/sony-tray/releases/latest/download/SonyTray-macos-universal.zip)** (universal — Apple Silicon and Intel).
 
 <sub>Or the whole thing from a terminal:</sub>
 
