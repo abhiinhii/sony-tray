@@ -84,6 +84,8 @@ make snapshot         # render the flyout offscreen to a PNG
 make install          # build and copy into /Applications
 make dist             # zip for distribution (runs verify-portable first)
 make verify-portable  # assert universal, macOS 13+, no non-system dependencies
+make verify-icon      # check the built bundle's 10 native application icon representations
+make regenerate-icon  # rebuild AppIcon.icns from the existing docs/icon.png artwork
 make uninstall        # remove the installed copy
 ```
 
@@ -93,7 +95,9 @@ make uninstall        # remove the installed copy
 The session/UI regression executable substitutes a mock transport for IOBluetooth. It checks
 connected-device selection, early replies/disconnects, cancellation, repeated refreshes, silent
 channel recovery, stop/start races, battery inquiry variants, edits during background refresh,
-devices without noise controls, and native vertical EQ controls. It does not verify
+devices without noise controls, Clear Bass/frequency bindings across EQ formats and reconnects,
+native noise-mode controls, and status-item popover visibility. The native UI checks need a
+macOS graphical session. It does not verify
 real headset compatibility. Run `make app` as well to compile the production Bluetooth adapter.
 
 ## Running from a build tree
@@ -143,6 +147,8 @@ channel is closed and retried even if macOS never sends a disconnect callback. T
 Sony Tray's RFCOMM channel; the shared audio connection remains managed by macOS.
 Noise and ambient controls are shown only when the headset announces a supported variant.
 EQ bands are editable with Manual/Custom presets; ambient controls are enabled in Ambient mode.
+Six-band devices show CLEAR BASS separately from their five frequency sliders. Ten-band devices
+have no CLEAR BASS control. Editing waits for a valid band reading after a connection or preset change.
 
 For hardware validation, exercise repeated reconnects, sleep/wake, and Bluetooth toggles; pair
 multiple Sony headsets with only one connected; and check battery/EQ refresh plus audio continuity.

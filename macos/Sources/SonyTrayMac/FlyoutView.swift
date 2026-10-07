@@ -47,15 +47,8 @@ struct FlyoutView: View {
     }
 
     private var modeChips: some View {
-        Picker("", selection: $viewModel.mode) {
-            if viewModel.hasNcChip {
-                Text("Noise Cancel").tag(NcAmbMode.noiseCancelling)
-            }
-            Text("Ambient").tag(NcAmbMode.ambient)
-            Text("Off").tag(NcAmbMode.off)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
+        NoiseModePicker(selection: $viewModel.mode, hasNoiseCancelling: viewModel.hasNcChip)
+            .frame(height: 24)
         .disabled(!viewModel.isConnected)
     }
 
@@ -92,27 +85,41 @@ struct FlyoutView: View {
                 .frame(width: 140)
             }
 
-            HStack(alignment: .bottom, spacing: 2) {
-                ForEach(Array(viewModel.bands.enumerated()), id: \.element.id) { index, band in
-                    bandSlider(index: index, band: band)
+            if !viewModel.frequencyBands.isEmpty {
+                HStack(alignment: .bottom, spacing: 2) {
+                    ForEach(viewModel.frequencyBands) { band in
+                        bandSlider(band: band)
+                    }
                 }
+                .frame(height: 104)
+                .disabled(!viewModel.eqBandsEditable)
             }
-            .frame(height: 104)
-            .disabled(!viewModel.eqBandsEditable)
+
+            if let bass = viewModel.clearBass {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("CLEAR BASS").foregroundStyle(.secondary)
+                        Spacer()
+                        Text(bass.value > 0 ? "+\(Int(bass.value))" : "\(Int(bass.value))")
+                            .monospacedDigit()
+                    }
+                    .font(.subheadline)
+                    Slider(value: bandValueBinding(for: bass), in: bass.minimum...bass.maximum, step: 1)
+                        .controlSize(.small)
+                        .accessibilityLabel("CLEAR BASS")
+                        .help("CLEAR BASS (−10 to +10)")
+                }
+                .disabled(!viewModel.eqBandsEditable)
+            }
         }
         .disabled(!viewModel.isConnected)
     }
 
     /// Keep the control's drawing bounds equal to its vertical layout bounds.
-    private func bandSlider(index: Int, band: BandModel) -> some View {
+    private func bandSlider(band: BandModel) -> some View {
         VStack(spacing: 4) {
             VerticalSlider(
-                value: Binding(
-                    get: { index < viewModel.bands.count ? viewModel.bands[index].value : 0 },
-                    set: { newValue in
-                        guard index < viewModel.bands.count else { return }
-                        viewModel.bands[index].value = newValue
-                    }),
+                value: bandValueBinding(for: band),
                 range: band.minimum...band.maximum,
                 label: band.label
             )
@@ -123,5 +130,13 @@ struct FlyoutView: View {
                 .foregroundStyle(.tertiary)
                 .fixedSize()
         }
+    }
+
+    // Bind by reading identity, not array position: a stale six-band slider must never edit a
+    // ten-band frequency (or a new connection's curve) after SwiftUI replaces the layout.
+    func bandValueBinding(for band: BandModel) -> Binding<Double> {
+        Binding(
+            get: { viewModel.bands.first(where: { $0.id == band.id })?.value ?? band.value },
+            set: { viewModel.setBandValue($0, id: band.id) })
     }
 }

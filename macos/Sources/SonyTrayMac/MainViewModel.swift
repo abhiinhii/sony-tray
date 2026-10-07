@@ -23,7 +23,7 @@ struct PresetChoice: Identifiable, Hashable {
 final class MainViewModel: ObservableObject {
     // 6-band devices (XM5-class): Clear Bass first, then 400/1k/2.5k/6.3k/16k Hz, range −10…+10.
     private static let sixBandLayout: [(String, Double, Double)] = [
-        ("CB", -10, 10), ("400", -10, 10), ("1k", -10, 10),
+        ("CLEAR BASS", -10, 10), ("400", -10, 10), ("1k", -10, 10),
         ("2.5k", -10, 10), ("6.3k", -10, 10), ("16k", -10, 10),
     ]
 
@@ -56,7 +56,9 @@ final class MainViewModel: ObservableObject {
     private var pendingBandsEdit: UUID?
     private var pendingPresetEdit: (id: UUID, preset: EqPreset)?
     private var isTenBandEq = false
+    private var nextBandID = 0
     private var capabilities: DeviceCapabilities?
+    @Published private(set) var hasEqBandData = false
 
     @Published private(set) var isConnected = false
     @Published private(set) var statusText = "Searching for headphones…"
@@ -100,6 +102,9 @@ final class MainViewModel: ObservableObject {
             bandsDebounce = nil
             pendingBandsEdit = nil
             if !suppressSend {
+                // A different preset's curve must be read before editing it. Otherwise a
+                // bass-only edit could write the previous preset's five frequencies back.
+                hasEqBandData = false
                 let preset = selectedPreset
                 let edit = UUID()
                 pendingPresetEdit = (edit, preset)
@@ -129,15 +134,30 @@ final class MainViewModel: ObservableObject {
 
     init(session: HeadphonesSession) {
         self.session = session
-        setBands(layout: Self.sixBandLayout, values: [Double](repeating: 0, count: 6))
         session.onStateChanged = { [weak self] state in self?.apply(state: state) }
         session.onDeviceEvent = { [weak self] event in self?.apply(event: event) }
         session.onCapabilities = { [weak self] caps in self?.apply(capabilities: caps) }
     }
 
     var ambientControlsEnabled: Bool { isConnected && hasNoiseControls && mode == .ambient }
-    var eqBandsEditable: Bool { isConnected && eqAvailable && selectedPreset >= .manual }
+    var eqBandsEditable: Bool {
+        isConnected && hasEqSection && eqAvailable && hasEqBandData && selectedPreset >= .manual
+    }
+    // Only a valid device reading establishes the layout. A six-band response already splits
+    // CLEAR BASS from its five frequencies; both controls still share the existing command.
+    var clearBass: BandModel? { hasEqBandData && !isTenBandEq ? bands.first : nil }
+    var frequencyBands: [BandModel] {
+        guard hasEqBandData else { return [] }
+        return isTenBandEq ? bands : Array(bands.dropFirst())
+    }
     var modeChipCount: Int { hasNcChip ? 3 : 2 }
+
+    func setBandValue(_ value: Double, id: Int) {
+        guard eqBandsEditable, value.isFinite,
+              let index = bands.firstIndex(where: { $0.id == id }),
+              (bands[index].minimum...bands[index].maximum).contains(value) else { return }
+        bands[index].value = value.rounded()
+    }
 
     func powerOff() {
         push { try await self.session.powerOff() }
@@ -177,7 +197,7 @@ final class MainViewModel: ObservableObject {
         bandsDebounce?.cancel()
         bandsDebounce = nil
         pendingBandsEdit = nil
-        guard isConnected, eqAvailable, selectedPreset >= .manual else { return }
+        guard eqBandsEditable else { return }
         let edit = UUID()
         pendingBandsEdit = edit
         let preset = selectedPreset
@@ -185,7 +205,8 @@ final class MainViewModel: ObservableObject {
         let tenBandEq = isTenBandEq
         bandsDebounce = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
-            guard !Task.isCancelled, let self, self.pendingBandsEdit == edit else { return }
+            guard !Task.isCancelled, let self, self.pendingBandsEdit == edit,
+                  self.eqBandsEditable else { return }
             self.bandsDebounce = nil
             self.push({
                 if tenBandEq {
@@ -232,6 +253,7 @@ final class MainViewModel: ObservableObject {
             pendingNoiseEdit = nil
             pendingBandsEdit = nil
             pendingPresetEdit = nil
+            hasEqBandData = false
             singleLevel = nil
             leftLevel = nil
             rightLevel = nil
@@ -257,6 +279,7 @@ final class MainViewModel: ObservableObject {
         powerOffVisible = caps.hasPowerOff
         // A temporary EQ-unavailable notification must not disable the next connection.
         eqAvailable = true
+        hasEqBandData = false
 
         // Reset cached battery readings BEFORE the capability-driven queries repopulate them —
         // otherwise a reconnect to a device with a different battery layout would compose stale
@@ -297,8 +320,23 @@ final class MainViewModel: ObservableObject {
             recomputeBatteryText()
         case .eqStatus(let available):
             eqAvailable = available
+            if !available {
+                bandsDebounce?.cancel()
+                bandsDebounce = nil
+                pendingBandsEdit = nil
+                hasEqBandData = false
+            }
         case .eq(let preset, let clearBass, let bandValues):
-            guard pendingBandsEdit == nil else { return }
+            if pendingBandsEdit != nil {
+                // Same-format polling may predate a local edit. A full reading in a different
+                // format instead supersedes that edit: never send six values to a ten-band UI.
+                let changesFormat = (isTenBandEq && bandValues.count == 5)
+                    || (!isTenBandEq && bandValues.count == 10)
+                guard changesFormat else { return }
+                bandsDebounce?.cancel()
+                bandsDebounce = nil
+                pendingBandsEdit = nil
+            }
             if let pendingPresetEdit, preset != pendingPresetEdit.preset { return }
             applyEq(preset: preset, clearBass: clearBass, bandValues: bandValues)
         case .protocolInfo, .supportFunctions:
@@ -307,26 +345,40 @@ final class MainViewModel: ObservableObject {
     }
 
     private func applyEq(preset: EqPreset, clearBass: Int, bandValues: [Int]) {
+        let presetChanged = selectedPreset != preset
         selectPreset(preset)
         switch bandValues.count {
         case 5: // 6-band device: Clear Bass + 5
+            guard (-10...10).contains(clearBass), bandValues.allSatisfy({ (-10...10).contains($0) }) else {
+                hasEqBandData = false
+                return
+            }
+            let rebuild = !hasEqBandData || isTenBandEq
             isTenBandEq = false
             let values = [Double(clearBass)] + bandValues.map(Double.init)
-            if bands.count != Self.sixBandLayout.count {
+            if rebuild {
                 setBands(layout: Self.sixBandLayout, values: values)
             } else {
                 setBandValues(values)
             }
+            hasEqBandData = true
         case 10: // 10-band device, no Clear Bass
+            guard bandValues.allSatisfy({ (-6...6).contains($0) }) else {
+                hasEqBandData = false
+                return
+            }
+            let rebuild = !hasEqBandData || !isTenBandEq
             isTenBandEq = true
             let values = bandValues.map(Double.init)
-            if bands.count != Self.tenBandLayout.count {
+            if rebuild {
                 setBands(layout: Self.tenBandLayout, values: values)
             } else {
                 setBandValues(values)
             }
+            hasEqBandData = true
         default:
-            break // RET carried no band data — preset only
+            // A preset-only reply must never attach the previous preset's curve to a new one.
+            if presetChanged || !bandValues.isEmpty { hasEqBandData = false }
         }
     }
 
@@ -342,8 +394,10 @@ final class MainViewModel: ObservableObject {
 
     private func setBands(layout: [(String, Double, Double)], values: [Double]) {
         bands = layout.enumerated().map { index, entry in
-            BandModel(
-                id: index, label: entry.0, minimum: entry.1, maximum: entry.2,
+            let id = nextBandID
+            nextBandID += 1
+            return BandModel(
+                id: id, label: entry.0, minimum: entry.1, maximum: entry.2,
                 value: index < values.count ? values[index] : 0)
         }
     }
