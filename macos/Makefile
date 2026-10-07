@@ -18,7 +18,8 @@ SESSION_TEST_SRC := $(wildcard Tests/SessionTests/*.swift) \
 	Sources/SonyTrayMac/Concurrency.swift Sources/SonyTrayMac/DeviceSelection.swift \
 	Sources/SonyTrayMac/HeadphonesSession.swift Sources/SonyTrayMac/MainViewModel.swift \
 	Sources/SonyTrayMac/VerticalSlider.swift Sources/SonyTrayMac/FlyoutView.swift \
-	Sources/SonyTrayMac/StatusIcon.swift
+	Sources/SonyTrayMac/StatusIcon.swift Sources/SonyTrayMac/NoiseModePicker.swift \
+	Sources/SonyTrayMac/MenuBarController.swift Sources/SonyTrayMac/LaunchAtLogin.swift
 
 # Empty on a healthy toolchain; see scripts/swift-compat-flags.sh.
 COMPAT := $(shell sh scripts/swift-compat-flags.sh $(BUILD))
@@ -40,7 +41,7 @@ else
 TARGETS := $(ARCH)-apple-macos$(DEPLOY)
 endif
 
-.PHONY: all test app run probe snapshot install uninstall dist verify-portable clean
+.PHONY: all test app run probe snapshot install uninstall dist verify-portable verify-icon regenerate-icon clean
 
 all: app
 
@@ -63,20 +64,27 @@ $(BUILD)/SonyProtocolTests: $(BUILD)/lib/libSonyProtocolKit.a $(TEST_SRC)
 $(BUILD)/SonySessionTests: $(BUILD)/lib/libSonyProtocolKit.a $(SESSION_TEST_SRC)
 	@$(SWIFTC) $(SWIFTFLAGS) -target $(ARCH)-apple-macos$(DEPLOY) \
 		-parse-as-library -I $(BUILD)/lib -L $(BUILD)/lib -lSonyProtocolKit \
-		-framework AppKit -framework SwiftUI -framework Combine \
+		-framework AppKit -framework SwiftUI -framework Combine -framework ServiceManagement \
 		-o $@ $(SESSION_TEST_SRC)
 
 test: $(BUILD)/SonyProtocolTests $(BUILD)/SonySessionTests
 	@$(BUILD)/SonyProtocolTests
 	@$(BUILD)/SonySessionTests
+	@sh scripts/verify-app-icon.sh Resources/Info.plist Resources
 
 # --- app bundle --------------------------------------------------------------------------
 
-app: $(APP)
+app: $(APP) verify-icon
+
+regenerate-icon:
+	@sh scripts/generate-app-icon.sh
+
+verify-icon: $(APP)
+	@sh scripts/verify-app-icon.sh $(APP)/Contents/Info.plist $(APP)/Contents/Resources
 
 # Per slice: build SonyProtocolKit as its own module, then the app against it. Keeping the module
 # boundary means the sources compile identically here and under SwiftPM/Xcode.
-$(APP): $(KIT_SRC) $(APP_SRC) Resources/Info.plist
+$(APP): $(KIT_SRC) $(APP_SRC) Resources/Info.plist Resources/AppIcon.icns
 	@rm -rf $(APP)
 	@mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	@for t in $(TARGETS); do \
@@ -96,7 +104,7 @@ $(APP): $(KIT_SRC) $(APP_SRC) Resources/Info.plist
 	@lipo -create $(foreach t,$(TARGETS),$(BUILD)/slices/$(t)/SonyTray) \
 		-output $(APP)/Contents/MacOS/SonyTray
 	@cp Resources/Info.plist $(APP)/Contents/Info.plist
-	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns $(APP)/Contents/Resources/; fi
+	@cp Resources/AppIcon.icns $(APP)/Contents/Resources/
 	@printf 'APPL????' > $(APP)/Contents/PkgInfo
 	@codesign --force --sign - --identifier com.sonytray.mac $(APP) 2>/dev/null \
 		&& echo "  signed (ad-hoc)" \

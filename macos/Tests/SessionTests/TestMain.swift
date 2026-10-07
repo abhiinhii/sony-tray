@@ -33,7 +33,16 @@ enum SessionTests {
         try check(condition(), "condition did not become true within \(timeout)s")
     }
 
-    static func main() async {
+    static func main() {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        // Native popovers and status items need AppKit's application event loop, not only
+        // Swift concurrency's async-main executor. The tests still use only fake transport.
+        Task { @MainActor in await runTests() }
+        app.run()
+    }
+
+    private static func runTests() async {
         await test("connected headset wins over earlier paired/offline headset") {
             struct Candidate: Equatable { let id: Int; let connected: Bool; let sony: Bool }
             let devices = [Candidate(id: 0, connected: false, sony: true),
@@ -284,6 +293,7 @@ enum SessionTests {
             _ = NSApplication.shared
             let session = HeadphonesSession()
             let model = MainViewModel(session: session)
+            session.onDeviceEvent?(.eq(preset: .custom1, clearBass: 0, bands: [0, 0, 0, 0, 0]))
             let host = NSHostingView(rootView: FlyoutView(viewModel: model))
             host.frame = NSRect(x: 0, y: 0, width: 320, height: 450)
             host.layoutSubtreeIfNeeded()
@@ -292,13 +302,15 @@ enum SessionTests {
                 return view.subviews.flatMap { sliders(in: $0) }
             }
             let vertical = sliders(in: host).filter { $0.isVertical }
-            try check(vertical.count == 6, "flyout did not create six native vertical EQ sliders")
+            try check(vertical.count == 5, "flyout did not create five native vertical frequency sliders")
             try check(vertical.allSatisfy { !$0.isEnabled && $0.frame.height > $0.frame.width },
                 "disconnected slider enabled or drawn into horizontal bounds")
             try check(StatusIcon.make(connected: true)?.size.width == 24, "app icon badge missing")
         }
 
+        await runNoiseModeTests()
         await runViewModelTests()
+        await runPopoverTests()
         print("\(passed) session/UI regression tests passed; \(failed) failed (mock transport, no hardware).")
         exit(failed == 0 ? 0 : 1)
     }

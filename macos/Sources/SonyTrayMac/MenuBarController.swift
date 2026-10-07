@@ -7,13 +7,15 @@ import SwiftUI
 @MainActor
 final class MenuBarController: NSObject {
     private let statusItem: NSStatusItem
-    private let popover = NSPopover()
+    private let popover: NSPopover
     private let viewModel: MainViewModel
     private var cancellables = Set<AnyCancellable>()
 
-    init(viewModel: MainViewModel) {
+    init(viewModel: MainViewModel, statusItem providedStatusItem: NSStatusItem? = nil,
+         popover providedPopover: NSPopover? = nil) {
         self.viewModel = viewModel
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = providedStatusItem ?? NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        popover = providedPopover ?? NSPopover()
         super.init()
 
         popover.behavior = .transient
@@ -36,6 +38,25 @@ final class MenuBarController: NSObject {
         viewModel.$batteryText
             .removeDuplicates()
             .sink { [weak self] _ in self?.refreshTooltip() }
+            .store(in: &cancellables)
+
+        // Menu-bar managers may either hide the item or move its window outside the display.
+        // A transient NSPopover stays open in both cases, leaving a detached flyout behind.
+        statusItem.publisher(for: \.isVisible, options: [.new])
+            .sink { [weak self] _ in self?.closePopoverIfAnchorUnavailable() }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: NSWindow.didMoveNotification)
+            .merge(with: NotificationCenter.default.publisher(for: NSWindow.didChangeScreenNotification))
+            .sink { [weak self] notification in
+                guard let self, let window = notification.object as? NSWindow,
+                      window === self.statusItem.button?.window else { return }
+                self.closePopoverIfAnchorUnavailable()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
+            .sink { [weak self] _ in self?.closePopoverIfAnchorUnavailable() }
             .store(in: &cancellables)
     }
 
@@ -61,8 +82,8 @@ final class MenuBarController: NSObject {
         }
     }
 
-    private func togglePopover() {
-        guard let button = statusItem.button else { return }
+    func togglePopover() {
+        guard statusItem.isVisible, let button = statusItem.button else { return }
         if popover.isShown {
             popover.performClose(nil)
             return
@@ -71,6 +92,25 @@ final class MenuBarController: NSObject {
         // A status-item popover belongs to an .accessory app that is not active, so it would open
         // behind the frontmost window's key state without this.
         popover.contentViewController?.view.window?.makeKey()
+    }
+
+    private func closePopoverIfAnchorUnavailable() {
+        guard popover.isShown else { return }
+        let anchorFrame = statusItem.button?.window?.frame ?? .zero
+        let anchorHasScreen = Self.anchorHasScreen(anchorFrame, screens: NSScreen.screens.map(\.frame))
+        if !statusItem.isVisible || !anchorHasScreen { popover.performClose(nil) }
+    }
+
+    static func anchorHasScreen(_ anchor: NSRect, screens: [NSRect]) -> Bool {
+        guard !anchor.isEmpty else { return false }
+        return screens.contains { screen in
+            // Standard menu-bar auto-hide moves the item just above screen.maxY while its
+            // popover remains usable. Permit that adjacent strip, but not a manager moving
+            // the anchor horizontally offscreen or a window stranded far beyond a display.
+            var menuBarBounds = screen
+            menuBarBounds.size.height += anchor.height
+            return menuBarBounds.intersects(anchor)
+        }
     }
 
     private func showMenu() {
