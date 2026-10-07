@@ -82,7 +82,7 @@
                               ItemsSource="{Binding EqPresets}" DisplayMemberPath="Name"
                               SelectedItem="{Binding SelectedEqPreset}"/>
                 </DockPanel>
-                <ItemsControl Margin="0,10,0,0" ItemsSource="{Binding EqBands}"
+                <ItemsControl x:Name="FrequencyBandsControl" Margin="0,10,0,0" ItemsSource="{Binding FrequencyBands}"
                               IsEnabled="{Binding EqBandsEditable}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
@@ -102,6 +102,21 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                <StackPanel x:Name="ClearBassPanel" Margin="0,12,0,0"
+                            Visibility="{Binding HasClearBass, Converter={StaticResource BoolToVis}}"
+                            IsEnabled="{Binding EqBandsEditable}">
+                    <DockPanel>
+                        <TextBlock Text="CLEAR BASS" Foreground="#B0FFFFFF" FontSize="11"/>
+                        <TextBlock Text="{Binding ClearBass.Value, StringFormat={}{0:+0;-0;0}}"
+                                   Foreground="White" DockPanel.Dock="Right" HorizontalAlignment="Right"/>
+                    </DockPanel>
+                    <Slider x:Name="ClearBassSlider" Minimum="{Binding ClearBass.Min}"
+                            Maximum="{Binding ClearBass.Max}" TickFrequency="1" IsSnapToTickEnabled="True"
+                            Value="{Binding ClearBass.Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            ToolTip="CLEAR BASS (-10 to +10)"/>
+                    <TextBlock Text="Select Manual or Custom to edit EQ and CLEAR BASS."
+                               Foreground="#80FFFFFF" FontSize="10" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                </StackPanel>
             </StackPanel>
 
             <TextBlock Text="{Binding StatusText}" Foreground="#80FFFFFF" FontSize="11" Margin="2,14,2,0"/>
