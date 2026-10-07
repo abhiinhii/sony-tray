@@ -17,7 +17,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // 6-band devices (XM5-class): Clear Bass first, then 400/1k/2.5k/6.3k/16k Hz, range −10…+10.
     private static readonly (string Label, double Min, double Max)[] SixBandLayout =
     [
-        ("CB", -10, 10), ("400", -10, 10), ("1k", -10, 10),
+        ("CLEAR BASS", -10, 10), ("400", -10, 10), ("1k", -10, 10),
         ("2.5k", -10, 10), ("6.3k", -10, 10), ("16k", -10, 10),
     ];
 
@@ -37,6 +37,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _suppressSend; // true while applying device state to the UI
     private NcAmbMode _mode = NcAmbMode.NoiseCancelling;
     private bool _isTenBandEq;
+    private bool _hasEqBandData;
     private DeviceCapabilities? _capabilities;
 
     public MainViewModel(HeadphonesSession session) : this(session, Application.Current.Dispatcher) { }
@@ -197,16 +198,31 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool EqAvailable { get => _eqAvailable; private set { Set(ref _eqAvailable, value); Raise(nameof(EqBandsEditable)); } }
 
     public bool EqBandsEditable =>
-        IsConnected && EqAvailable && SelectedEqPreset is { Id: >= EqPreset.Manual };
+        IsConnected && EqAvailable && _hasEqBandData && SelectedEqPreset is { Id: >= EqPreset.Manual };
 
     /// <summary>One entry per equalizer band/slider — 6 (Clear Bass + 5) or 10, driven by the device's EqEvent.</summary>
     public ObservableCollection<BandViewModel> EqBands { get; } = [];
+    // The separate bass control shares the existing six-band command model. Never infer
+    // support from the placeholder layout before actual band data arrives.
+    public BandViewModel? ClearBass => _hasEqBandData && !_isTenBandEq ? EqBands[0] : null;
+    public bool HasClearBass => ClearBass is not null;
+    public IEnumerable<BandViewModel> FrequencyBands => !_hasEqBandData ? []
+        : _isTenBandEq ? EqBands : EqBands.Skip(1);
+
+    private void NotifyEqLayout()
+    {
+        Raise(nameof(ClearBass));
+        Raise(nameof(HasClearBass));
+        Raise(nameof(FrequencyBands));
+        Raise(nameof(EqBandsEditable));
+    }
 
     private void InitBands((string Label, double Min, double Max)[] layout, IReadOnlyList<double> values)
     {
         EqBands.Clear();
         for (int i = 0; i < layout.Length; i++)
             EqBands.Add(new BandViewModel(this, layout[i].Label, layout[i].Min, layout[i].Max, values[i]));
+        NotifyEqLayout();
     }
 
     private void ApplyBandValues(IReadOnlyList<double> values)
@@ -325,6 +341,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             EqAvailable = available;
             SelectedEqPreset = null;
             _isTenBandEq = false;
+            _hasEqBandData = false;
             InitBands(SixBandLayout, new double[6]);
         }
         finally { _suppressSend = false; }
@@ -409,22 +426,34 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 break;
             case EqEvent e when e.Bands.Length == 5: // 6-band device: Clear Bass + 5
             {
+                bool layoutChanged = !_hasEqBandData || _isTenBandEq;
                 _isTenBandEq = false;
+                _hasEqBandData = true;
                 SelectedEqPreset = EqPresets.FirstOrDefault(p => p.Id == e.Preset)
                     ?? new EqPresetChoice(e.Preset, $"Preset 0x{(byte)e.Preset:X2}");
                 double[] values = [e.ClearBass, e.Bands[0], e.Bands[1], e.Bands[2], e.Bands[3], e.Bands[4]];
                 if (EqBands.Count != SixBandLayout.Length) InitBands(SixBandLayout, values);
-                else ApplyBandValues(values);
+                else
+                {
+                    ApplyBandValues(values);
+                    if (layoutChanged) NotifyEqLayout();
+                }
                 break;
             }
             case EqEvent e when e.Bands.Length == 10: // 10-band device, no Clear Bass
             {
+                bool layoutChanged = !_hasEqBandData || !_isTenBandEq;
                 _isTenBandEq = true;
+                _hasEqBandData = true;
                 SelectedEqPreset = EqPresets.FirstOrDefault(p => p.Id == e.Preset)
                     ?? new EqPresetChoice(e.Preset, $"Preset 0x{(byte)e.Preset:X2}");
                 double[] values = e.Bands.Select(b => (double)b).ToArray();
                 if (EqBands.Count != TenBandLayout.Length) InitBands(TenBandLayout, values);
-                else ApplyBandValues(values);
+                else
+                {
+                    ApplyBandValues(values);
+                    if (layoutChanged) NotifyEqLayout();
+                }
                 break;
             }
             case EqEvent e:

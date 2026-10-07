@@ -40,6 +40,8 @@ public sealed class MainViewModelTests
         public event Action<DeviceCapabilities>? CapabilitiesResolved;
         internal int Sends;
         internal int Refreshes;
+        internal (EqPreset Preset, int ClearBass, int[] Bands)? LastSixBandWrite;
+        internal (EqPreset Preset, int[] Bands)? LastTenBandWrite;
         internal Func<Task> Send { get; set; } = () => Task.CompletedTask;
         internal void Connect(params BatteryKind[] batteries)
         {
@@ -56,8 +58,10 @@ public sealed class MainViewModelTests
         private Task Command() { Sends++; return Send(); }
         public Task SetNcAmbAsync(NcAmbMode mode, int ambientLevel, bool focusOnVoice) => Command();
         public Task SetEqPresetAsync(EqPreset preset) => Command();
-        public Task SetEqBandsAsync(EqPreset preset, int clearBass, int[] bands) => Command();
-        public Task SetEqBands10Async(EqPreset preset, int[] bands) => Command();
+        public Task SetEqBandsAsync(EqPreset preset, int clearBass, int[] bands)
+        { LastSixBandWrite = (preset, clearBass, bands.ToArray()); return Command(); }
+        public Task SetEqBands10Async(EqPreset preset, int[] bands)
+        { LastTenBandWrite = (preset, bands.ToArray()); return Command(); }
         public Task PowerOffAsync() => Command();
         public Task RefreshAsync() { Refreshes++; return Task.CompletedTask; }
     }
@@ -173,6 +177,69 @@ public sealed class MainViewModelTests
         vm.AmbientLevel = 9; vm.FocusOnVoice = true;
         vm.SelectedEqPreset = vm.EqPresets.First(p => p.Id == EqPreset.Custom1);
         vm.EqBands[0].Value = 4; vm.PowerOffCommand.Execute(null);
+        Pump(450);
+        Assert.Equal(0, session.Sends);
+    });
+
+    [Fact]
+    public Task SixBandEq_IdentifiesClearBassAndPreservesFrequencyValues() => OnSta(() =>
+    {
+        var session = new FakeSession(); var vm = new MainViewModel(session, Dispatcher.CurrentDispatcher);
+        session.Connect(BatteryKind.Single);
+        session.Emit(new EqEvent(EqPreset.Custom2, -3, [1, -2, 3, -4, 5]));
+        Assert.Equal("CLEAR BASS", vm.EqBands[0].Label);
+        Assert.Equal(-3, vm.EqBands[0].Value);
+        vm.EqBands[0].Value = 7;
+        Pump(450);
+        var write = Assert.IsType<ValueTuple<EqPreset, int, int[]>>(session.LastSixBandWrite);
+        Assert.Equal(EqPreset.Custom2, write.Item1);
+        Assert.Equal(7, write.Item2);
+        Assert.Equal([1, -2, 3, -4, 5], write.Item3);
+        Assert.Equal(1, session.Sends);
+        Assert.Null(session.LastTenBandWrite);
+        session.Drop(); session.Connect(BatteryKind.Single);
+        session.Emit(new EqEvent(EqPreset.Custom1, 0, [0, 0, 0, 0, 0]));
+        Assert.Equal(0, vm.EqBands[0].Value);
+    });
+
+    [Fact]
+    public Task UnknownEqLayout_DoesNotEnableBandEditsOrSend() => OnSta(() =>
+    {
+        var session = new FakeSession(); var vm = new MainViewModel(session, Dispatcher.CurrentDispatcher);
+        session.Connect(BatteryKind.Single);
+        session.Emit(new EqEvent(EqPreset.Custom1, 0, []));
+        Assert.False(vm.EqBandsEditable);
+        vm.EqBands[0].Value = 6;
+        Pump(450);
+        Assert.Equal(0, session.Sends);
+        Assert.Null(session.LastSixBandWrite);
+        Assert.Null(session.LastTenBandWrite);
+    });
+
+    [Fact]
+    public Task TenBandEq_EditPreservesAllTenValuesWithoutBassWrite() => OnSta(() =>
+    {
+        var session = new FakeSession(); var vm = new MainViewModel(session, Dispatcher.CurrentDispatcher);
+        session.Connect(BatteryKind.Single);
+        session.Emit(new EqEvent(EqPreset.Manual, 0, [-6, -5, -4, -3, -2, -1, 0, 1, 2, 3]));
+        vm.EqBands[0].Value = 4;
+        Pump(450);
+        var write = Assert.IsType<ValueTuple<EqPreset, int[]>>(session.LastTenBandWrite);
+        Assert.Equal(EqPreset.Manual, write.Item1);
+        Assert.Equal([4, -5, -4, -3, -2, -1, 0, 1, 2, 3], write.Item2);
+        Assert.Null(session.LastSixBandWrite);
+    });
+
+    [Fact]
+    public Task PresetOnlyReply_PreservesKnownBassButDisablesFixedPresetEditing() => OnSta(() =>
+    {
+        var session = new FakeSession(); var vm = new MainViewModel(session, Dispatcher.CurrentDispatcher);
+        session.Connect(BatteryKind.Single);
+        session.Emit(new EqEvent(EqPreset.Custom1, 4, [1, 2, 3, 4, 5]));
+        session.Emit(new EqEvent(EqPreset.Bright, 0, []));
+        Assert.Equal(4, vm.EqBands[0].Value);
+        Assert.False(vm.EqBandsEditable);
+        vm.EqBands[0].Value = 6;
         Pump(450);
         Assert.Equal(0, session.Sends);
     });

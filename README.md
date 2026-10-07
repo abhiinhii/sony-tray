@@ -104,6 +104,12 @@ session recovery, device selection, and WPF view-model/debounce tests. These tes
 do not contact Bluetooth devices. A real paired Sony headset is still needed to
 verify connectivity and controls end to end.
 
+For devices reporting the six-band EQ format, Windows shows five frequency sliders
+and a separate **CLEAR BASS** control (−10…+10). Choose **Manual**, **Custom 1**, or
+**Custom 2** to edit them. The ten-band format displays ten frequency sliders without
+CLEAR BASS. Band editing stays disabled until the device supplies a supported EQ
+layout; a preset-only response does not establish that layout.
+
 macOS:
 
 ```bash
