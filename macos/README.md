@@ -11,7 +11,7 @@ frameworks, no Homebrew, no Xcode.
 
 ### Option 1 — download (nothing to install)
 
-**[⬇ SonyTray-macos-universal.zip](https://github.com/abhiinhii/sony-tray/releases/latest/download/SonyTray-macos-universal.zip)** (316 KB), or from a terminal:
+**[⬇ SonyTray-macos-universal.zip](https://github.com/abhiinhii/sony-tray/releases/latest/download/SonyTray-macos-universal.zip)**, or from a terminal:
 
 ```bash
 curl -L -o ~/Downloads/SonyTray.zip https://github.com/abhiinhii/sony-tray/releases/latest/download/SonyTray-macos-universal.zip
