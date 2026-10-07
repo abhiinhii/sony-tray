@@ -52,6 +52,9 @@ final class MainViewModel: ObservableObject {
     private var suppressSend = false // true while applying device state to the UI
     private var ambientDebounce: Task<Void, Never>?
     private var bandsDebounce: Task<Void, Never>?
+    private var pendingNoiseEdit: UUID?
+    private var pendingBandsEdit: UUID?
+    private var pendingPresetEdit: (id: UUID, preset: EqPreset)?
     private var isTenBandEq = false
     private var capabilities: DeviceCapabilities?
 
@@ -63,6 +66,7 @@ final class MainViewModel: ObservableObject {
     // Defaults match the Windows port: the NC chip, EQ section and power-off button are present
     // until capabilities resolve and say otherwise.
     @Published private(set) var hasNcChip = true
+    @Published private(set) var hasNoiseControls = true
     @Published private(set) var hasEqSection = true
     @Published private(set) var powerOffVisible = true
     @Published private(set) var eqAvailable = true
@@ -93,9 +97,15 @@ final class MainViewModel: ObservableObject {
         didSet {
             guard oldValue != selectedPreset else { return }
             bandsDebounce?.cancel() // a preset switch supersedes any pending band edit
+            bandsDebounce = nil
+            pendingBandsEdit = nil
             if !suppressSend {
                 let preset = selectedPreset
-                push { try await self.session.setEqPreset(preset) }
+                let edit = UUID()
+                pendingPresetEdit = (edit, preset)
+                push({ try await self.session.setEqPreset(preset) }, onComplete: {
+                    if self.pendingPresetEdit?.id == edit { self.pendingPresetEdit = nil }
+                })
             }
         }
     }
@@ -125,7 +135,7 @@ final class MainViewModel: ObservableObject {
         session.onCapabilities = { [weak self] caps in self?.apply(capabilities: caps) }
     }
 
-    var ambientControlsEnabled: Bool { isConnected && mode == .ambient }
+    var ambientControlsEnabled: Bool { isConnected && hasNoiseControls && mode == .ambient }
     var eqBandsEditable: Bool { isConnected && eqAvailable && selectedPreset >= .manual }
     var modeChipCount: Int { hasNcChip ? 3 : 2 }
 
@@ -136,54 +146,77 @@ final class MainViewModel: ObservableObject {
     // MARK: - Sending
 
     private func pushMode() {
-        let mode = self.mode
-        let level = Int(ambientLevel.rounded())
-        let voice = focusOnVoice
-        push {
-            try await self.session.setNcAmb(
-                mode: mode, ambientLevel: min(max(level, 0), 20), focusOnVoice: voice)
-        }
+        scheduleMode(delay: 0)
     }
 
     private func debounceAmbient() {
+        scheduleMode(delay: 250_000_000)
+    }
+
+    private func scheduleMode(delay: UInt64) {
         ambientDebounce?.cancel()
+        let edit = UUID()
+        pendingNoiseEdit = edit
+        let mode = self.mode
+        let level = Int(ambientLevel.rounded())
+        let voice = focusOnVoice
         ambientDebounce = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            guard !Task.isCancelled else { return }
-            self?.pushMode()
+            if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
+            guard !Task.isCancelled, let self, self.pendingNoiseEdit == edit else { return }
+            self.ambientDebounce = nil
+            self.push({
+                try await self.session.setNcAmb(
+                    mode: mode, ambientLevel: min(max(level, 0), 20), focusOnVoice: voice)
+            }, onComplete: {
+                if self.pendingNoiseEdit == edit { self.pendingNoiseEdit = nil }
+            })
         }
     }
 
     private func debounceBands() {
         bandsDebounce?.cancel()
+        bandsDebounce = nil
+        pendingBandsEdit = nil
+        guard isConnected, eqAvailable, selectedPreset >= .manual else { return }
+        let edit = UUID()
+        pendingBandsEdit = edit
+        let preset = selectedPreset
+        let values = bands.map { Int($0.value.rounded()) }
+        let tenBandEq = isTenBandEq
         bandsDebounce = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
-            guard !Task.isCancelled, let self else { return }
-            guard self.selectedPreset >= .manual else { return }
-            let preset = self.selectedPreset
-            let values = self.bands.map { Int($0.value.rounded()) }
-            if self.isTenBandEq {
-                self.push { try await self.session.setEqBands10(preset: preset, bands: values) }
-            } else {
-                let clearBass = values.first ?? 0
-                let rest = Array(values.dropFirst())
-                self.push {
+            guard !Task.isCancelled, let self, self.pendingBandsEdit == edit else { return }
+            self.bandsDebounce = nil
+            self.push({
+                if tenBandEq {
+                    try await self.session.setEqBands10(preset: preset, bands: values)
+                } else {
+                    let clearBass = values.first ?? 0
+                    let rest = Array(values.dropFirst())
                     try await self.session.setEqBands(preset: preset, clearBass: clearBass, bands: rest)
                 }
-            }
+            }, onComplete: {
+                if self.pendingBandsEdit == edit { self.pendingBandsEdit = nil }
+            })
         }
     }
 
     /// Optimistic send; on failure re-sync the UI from the device so it never lies.
-    private func push(_ send: @escaping () async throws -> Void) {
+    private func push(_ send: @escaping () async throws -> Void, onComplete: @escaping () -> Void = {}) {
         Task { @MainActor in
             do {
+                guard self.isConnected else { onComplete(); return }
                 try await send()
             } catch {
+                // Release the local edit before applying the recovery query's response.
+                onComplete()
+                guard self.isConnected else { return }
                 Log.error("Command failed: \(error.localizedDescription)")
                 statusText = "Command failed — resyncing…"
                 try? await session.refresh() // reconnect loop will recover if this fails too
+                return
             }
+            onComplete()
         }
     }
 
@@ -191,6 +224,20 @@ final class MainViewModel: ObservableObject {
 
     private func apply(state: SessionState) {
         isConnected = state == .ready
+        if !isConnected {
+            ambientDebounce?.cancel()
+            bandsDebounce?.cancel()
+            ambientDebounce = nil
+            bandsDebounce = nil
+            pendingNoiseEdit = nil
+            pendingBandsEdit = nil
+            pendingPresetEdit = nil
+            singleLevel = nil
+            leftLevel = nil
+            rightLevel = nil
+            cradleLevel = nil
+            recomputeBatteryText()
+        }
         switch state {
         case .ready: statusText = "Connected"
         case .connecting: statusText = "Connecting…"
@@ -205,8 +252,11 @@ final class MainViewModel: ObservableObject {
         capabilities = caps
         deviceName = caps.deviceName
         hasNcChip = caps.hasNcMode
+        hasNoiseControls = caps.ncVariant != nil
         hasEqSection = caps.hasEq
         powerOffVisible = caps.hasPowerOff
+        // A temporary EQ-unavailable notification must not disable the next connection.
+        eqAvailable = true
 
         // Reset cached battery readings BEFORE the capability-driven queries repopulate them —
         // otherwise a reconnect to a device with a different battery layout would compose stale
@@ -225,6 +275,8 @@ final class MainViewModel: ObservableObject {
 
         switch event {
         case .ncAmb(let mode, let level, let voice):
+            // A periodic read may still describe the state before a local debounced edit.
+            guard pendingNoiseEdit == nil else { return }
             self.mode = mode
             if level >= 1 { ambientLevel = Double(level) }
             focusOnVoice = voice
@@ -246,6 +298,8 @@ final class MainViewModel: ObservableObject {
         case .eqStatus(let available):
             eqAvailable = available
         case .eq(let preset, let clearBass, let bandValues):
+            guard pendingBandsEdit == nil else { return }
+            if let pendingPresetEdit, preset != pendingPresetEdit.preset { return }
             applyEq(preset: preset, clearBass: clearBass, bandValues: bandValues)
         case .protocolInfo, .supportFunctions:
             break // handshake-only, consumed by the session

@@ -10,8 +10,10 @@ struct FlyoutView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
-            modeChips
-            ambientSection
+            if viewModel.hasNoiseControls {
+                modeChips
+                ambientSection
+            }
             if viewModel.hasEqSection { equalizerSection }
             Text(viewModel.statusText)
                 .font(.caption)
@@ -101,23 +103,19 @@ struct FlyoutView: View {
         .disabled(!viewModel.isConnected)
     }
 
-    /// SwiftUI has no vertical slider on macOS, so a horizontal one is rotated a quarter turn and
-    /// re-framed to the footprint it occupies after rotation.
+    /// Keep the control's drawing bounds equal to its vertical layout bounds.
     private func bandSlider(index: Int, band: BandModel) -> some View {
         VStack(spacing: 4) {
-            Slider(
+            VerticalSlider(
                 value: Binding(
                     get: { index < viewModel.bands.count ? viewModel.bands[index].value : 0 },
                     set: { newValue in
                         guard index < viewModel.bands.count else { return }
                         viewModel.bands[index].value = newValue
                     }),
-                in: band.minimum...band.maximum,
-                step: 1
+                range: band.minimum...band.maximum,
+                label: band.label
             )
-            .controlSize(.mini)
-            .frame(width: 84)
-            .rotationEffect(.degrees(-90))
             .frame(width: 26, height: 84)
 
             Text(band.label)

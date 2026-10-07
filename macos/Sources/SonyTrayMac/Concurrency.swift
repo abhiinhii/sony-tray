@@ -8,7 +8,7 @@ import Foundation
 @MainActor
 final class Waiter<T> {
     private var continuation: CheckedContinuation<T, Error>?
-    private var stored: T?
+    private var stored: Result<T, Error>?
     private var armed = false
     private var era = 0
 
@@ -17,29 +17,37 @@ final class Waiter<T> {
     /// reply would land on an empty slot and the wait would time out. (The C# port gets the same
     /// guarantee by constructing its `TaskCompletionSource` before calling `SendCommandAsync`.)
     func arm() {
+        era &+= 1
         stored = nil
         armed = true
     }
 
     func wait(timeout: TimeInterval, timeoutError: @escaping @Sendable () -> Error) async throws -> T {
+        try Task.checkCancellation()
         if let stored {
             self.stored = nil
             armed = false
-            return stored
+            return try stored.get()
         }
+        let myEra = era
         var timeoutTask: Task<Void, Never>?
         defer { timeoutTask?.cancel() }
-        return try await withCheckedThrowingContinuation { cont in
-            era &+= 1
-            let myEra = era
-            continuation = cont
-            // Armed only after the continuation is stored, so a zero-ish timeout can't fire
-            // against an empty slot and strand the caller.
-            timeoutTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
-                guard !Task.isCancelled else { return }
-                self.fail(era: myEra, error: timeoutError())
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { cont in
+                if Task.isCancelled {
+                    armed = false
+                    cont.resume(throwing: CancellationError())
+                    return
+                }
+                continuation = cont
+                timeoutTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
+                    guard !Task.isCancelled else { return }
+                    self.fail(era: myEra, error: timeoutError())
+                }
             }
+        } onCancel: {
+            Task { @MainActor in self.fail(era: myEra, error: CancellationError()) }
         }
     }
 
@@ -50,14 +58,16 @@ final class Waiter<T> {
             armed = false
             cont.resume(returning: value)
         } else if armed {
-            stored = value // reply beat the await; `wait` picks it up
+            stored = .success(value) // reply beat the await; `wait` picks it up
+            armed = false // duplicate replies must not overwrite the first result
         }
     }
 
     /// Fails any pending wait regardless of era — used when the transport drops so callers
     /// surface the disconnect immediately instead of sitting out the full timeout.
     func failPending(_ error: Error) {
-        stored = nil
+        // A drop can beat `wait`, just like a reply can. Preserve that failure too.
+        stored = armed || stored != nil ? .failure(error) : nil
         armed = false
         guard let cont = continuation else { return }
         continuation = nil
@@ -69,6 +79,7 @@ final class Waiter<T> {
         guard self.era == era, let cont = continuation else { return }
         continuation = nil
         self.era &+= 1
+        armed = false
         cont.resume(throwing: error)
     }
 }
@@ -80,19 +91,20 @@ final class Waiter<T> {
 final class Signal {
     private var continuation: CheckedContinuation<Void, Never>?
     private var fired = false
-    private var timedOut = false
+    var isFired: Bool { fired }
 
     /// Waits with a deadline. Returns false if the timeout elapsed before the signal fired.
     func wait(timeout: TimeInterval) async -> Bool {
         let timeoutTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
             guard !Task.isCancelled else { return }
-            self.timedOut = true
-            self.fire()
+            let cont = self.continuation
+            self.continuation = nil
+            cont?.resume()
         }
         await wait()
         timeoutTask.cancel()
-        return !timedOut
+        return fired
     }
 
     func wait() async {
