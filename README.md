@@ -99,6 +99,11 @@ dotnet test
 dotnet publish src/SonyTray -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 ```
 
+On Windows, `dotnet test` includes protocol tests plus simulated RFCOMM transport,
+session recovery, device selection, and WPF view-model/debounce tests. These tests
+do not contact Bluetooth devices. A real paired Sony headset is still needed to
+verify connectivity and controls end to end.
+
 macOS:
 
 ```bash
@@ -110,6 +115,12 @@ cd macos && make test && make app
 Run `SonyTray.exe --probe` for a console harness that connects, prints the handshake, and exits — useful for checking a device before filing an issue.
 
 Logs live at `%AppData%\SonyTray\logs\app.log`, including raw frame hex for every message sent and received.
+
+The Windows session checks for an MDR protocol response and refreshes EQ/battery
+readings every 15 seconds while connected. Failed command acknowledgments, stalled
+writes, or a missing protocol response retire that channel and restart discovery.
+Connected paired devices are queried first; reconnect attempts use a 2–30 second
+backoff. A disconnected session clears battery/EQ readings and pending UI edits.
 
 ## 🙏 Credits & license
 

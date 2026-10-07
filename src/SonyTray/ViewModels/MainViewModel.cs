@@ -28,23 +28,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ("1k", -6, 6), ("2k", -6, 6), ("4k", -6, 6), ("8k", -6, 6), ("16k", -6, 6),
     ];
 
-    private readonly HeadphonesSession _session;
+    private readonly IHeadphonesSession _session;
+    private readonly Dispatcher _dispatcher;
     private readonly DispatcherTimer _ambientDebounce;
+    private long _uiConnectionVersion;
+    private long _ambientVersion;
+    private long _bandsVersion;
     private bool _suppressSend; // true while applying device state to the UI
     private NcAmbMode _mode = NcAmbMode.NoiseCancelling;
     private bool _isTenBandEq;
     private DeviceCapabilities? _capabilities;
 
-    public MainViewModel(HeadphonesSession session)
+    public MainViewModel(HeadphonesSession session) : this(session, Application.Current.Dispatcher) { }
+
+    internal MainViewModel(IHeadphonesSession session, Dispatcher dispatcher)
     {
         _session = session;
-        _ambientDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-        _ambientDebounce.Tick += (_, _) => { _ambientDebounce.Stop(); PushMode(); };
+        _dispatcher = dispatcher;
+        _uiConnectionVersion = session.ConnectionVersion;
+        _ambientDebounce = new DispatcherTimer(DispatcherPriority.Normal, dispatcher) { Interval = TimeSpan.FromMilliseconds(250) };
+        _ambientDebounce.Tick += (_, _) =>
+        {
+            _ambientDebounce.Stop();
+            if (_ambientVersion == _session.ConnectionVersion) PushMode();
+        };
         PowerOffCommand = new RelayCommand(() => _ = PushAsync(() => _session.PowerOffAsync()));
         InitBands(SixBandLayout, new double[6]);
-        session.StateChanged += s => OnUi(() => ApplyState(s));
-        session.DeviceUpdated += e => OnUi(() => ApplyEvent(e));
-        session.CapabilitiesResolved += c => OnUi(() => ApplyCapabilities(c));
+        session.StateChanged += s => OnConnectionUi(() => ApplyState(s));
+        session.DeviceUpdated += e => OnConnectionUi(() => ApplyEvent(e));
+        session.CapabilitiesResolved += c => OnConnectionUi(() => ApplyCapabilities(c));
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -112,9 +124,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         get => _ambientLevel;
         set
         {
-            if (Set(ref _ambientLevel, Math.Clamp(Math.Round(value), 1, 20)) && !_suppressSend)
+            if (Set(ref _ambientLevel, Math.Clamp(Math.Round(value), 1, 20)) && !_suppressSend && IsConnected)
             {
                 _ambientDebounce.Stop();
+                _ambientVersion = _session.ConnectionVersion;
                 _ambientDebounce.Start();
             }
         }
@@ -205,18 +218,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private DispatcherTimer? _bandsDebounce;
     private void DebounceBands()
     {
+        if (!EqBandsEditable) return;
         _bandsDebounce ??= CreateBandsDebounce();
         _bandsDebounce.Stop();
+        _bandsVersion = _session.ConnectionVersion;
         _bandsDebounce.Start();
     }
 
     private DispatcherTimer CreateBandsDebounce()
     {
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        var timer = new DispatcherTimer(DispatcherPriority.Normal, _dispatcher) { Interval = TimeSpan.FromMilliseconds(300) };
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            if (SelectedEqPreset is not { Id: >= EqPreset.Manual } preset) return;
+            if (_bandsVersion != _session.ConnectionVersion) return;
+            if (!EqBandsEditable || SelectedEqPreset is not { Id: >= EqPreset.Manual } preset) return;
             if (_isTenBandEq)
             {
                 int[] bands = EqBands.Select(b => (int)b.Value).ToArray();
@@ -232,24 +248,37 @@ public sealed class MainViewModel : INotifyPropertyChanged
         return timer;
     }
 
-    /// <summary>Optimistic send; on failure re-sync UI from the device so it never lies.</summary>
+    /// <summary>Connection failures are recovered by the session, with UI updates scoped to it.</summary>
     private async Task PushAsync(Func<Task> send)
     {
-        try
-        {
-            await send();
-        }
-        catch (Exception ex) when (ex is TimeoutException or InvalidOperationException)
+        if (!IsConnected || _session.State != SessionState.Ready || _uiConnectionVersion != _session.ConnectionVersion) return;
+        long version = _session.ConnectionVersion;
+        try { await send(); }
+        catch (OperationCanceledException) { /* connection ended or app is exiting */ }
+        catch (Exception ex) when (ex is TimeoutException or InvalidOperationException
+            or System.IO.IOException or System.Runtime.InteropServices.COMException)
         {
             Log.Error($"Command failed: {ex.Message}");
-            StatusText = "Command failed — resyncing…";
-            try { await _session.RefreshAsync(); } catch { /* reconnect loop will recover */ }
+            // Do not refresh a replacement or overwrite its status when an older send ends.
+            OnUi(() =>
+            {
+                if (_session.ConnectionVersion == version && _session.State == SessionState.Ready)
+                    StatusText = "Command failed - reconnecting.";
+            });
         }
     }
 
     private void ApplyState(SessionState state)
     {
         IsConnected = state == SessionState.Ready;
+        if (!IsConnected)
+        {
+            _ambientDebounce.Stop();
+            _bandsDebounce?.Stop();
+            _capabilities = null;
+            ClearBattery();
+            ResetEq(available: false);
+        }
         StatusText = state switch
         {
             SessionState.Ready => "Connected",
@@ -268,16 +297,37 @@ public sealed class MainViewModel : INotifyPropertyChanged
         HasNcChip = caps.HasNcMode;
         HasEqSection = caps.HasEq;
         PowerOffVisible = caps.HasPowerOff;
+        _ambientDebounce.Stop();
+        _bandsDebounce?.Stop();
+        ResetEq(caps.HasEq);
 
         // Reset cached battery readings BEFORE the capability-driven queries repopulate them —
         // otherwise a reconnect to a device with a different battery layout would compose stale
         // readings from the previous device (RecomputeBatteryText branches on cached-field-non-null,
         // not on the newly-resolved capabilities).
+        ClearBattery();
+    }
+
+    private void ClearBattery()
+    {
         _singleLevel = null;
         _leftLevel = null;
         _rightLevel = null;
         _cradleLevel = null;
         RecomputeBatteryText();
+    }
+
+    private void ResetEq(bool available)
+    {
+        _suppressSend = true;
+        try
+        {
+            EqAvailable = available;
+            SelectedEqPreset = null;
+            _isTenBandEq = false;
+            InitBands(SixBandLayout, new double[6]);
+        }
+        finally { _suppressSend = false; }
     }
 
     private void ApplyEvent(DeviceEvent evt)
@@ -384,11 +434,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private static void OnUi(Action action)
+    private void OnConnectionUi(Action action)
     {
-        Dispatcher dispatcher = Application.Current.Dispatcher;
-        if (dispatcher.CheckAccess()) action();
-        else dispatcher.BeginInvoke(action);
+        long version = _session.ConnectionVersion;
+        OnUi(() =>
+        {
+            if (_session.ConnectionVersion != version) return;
+            _uiConnectionVersion = version;
+            action();
+        });
+    }
+
+    private void OnUi(Action action)
+    {
+        if (_dispatcher.CheckAccess()) action();
+        else _dispatcher.BeginInvoke(action);
     }
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)

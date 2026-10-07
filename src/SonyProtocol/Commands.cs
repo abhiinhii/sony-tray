@@ -66,7 +66,8 @@ public static class Commands
     public static byte[] GetNcAmb(NcAmbVariant variant) => [0x66, (byte)variant];
     public static byte[] GetEqStatus() => [0x52, 0x00];
     public static byte[] GetEq() => [0x56, 0x00];
-    public static byte[] GetBattery(BatteryKind kind) => [0x22, (byte)kind];
+    public static byte[] GetBattery(BatteryKind kind, bool withThreshold = false) =>
+        [0x22, (byte)((byte)kind + (withThreshold ? 8 : 0))];
 
     // POWER_SET_STATUS(0x24), PowerInquiredType::POWER_OFF(0x03), PowerOffSettingValue::USER_POWER_OFF(0x01)
     public static byte[] PowerOff() => [0x24, 0x03, 0x01];
