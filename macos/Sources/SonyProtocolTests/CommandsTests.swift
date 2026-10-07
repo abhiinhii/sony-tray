@@ -16,6 +16,12 @@ func runCommandsTests() {
         expectEqual(Commands.getBattery(.cradle), [0x22, 0x02])
     }
 
+    test("threshold battery inquiries match the announced layouts") {
+        expectEqual(Commands.getBattery(.single, withThreshold: true), [0x22, 0x08])
+        expectEqual(Commands.getBattery(.leftRight, withThreshold: true), [0x22, 0x09])
+        expectEqual(Commands.getBattery(.cradle, withThreshold: true), [0x22, 0x0A])
+    }
+
     let dualSeamless: [(NcAmbMode, Int, Bool, [UInt8])] = [
         (.noiseCancelling, 17, false, [0x68, 0x17, 0x01, 0x01, 0x00, 0x00, 0x11]),
         (.ambient, 20, true, [0x68, 0x17, 0x01, 0x01, 0x01, 0x01, 0x14]),

@@ -14,6 +14,11 @@ APP      := $(BUILD)/SonyTray.app
 KIT_SRC  := $(wildcard Sources/SonyProtocolKit/*.swift)
 APP_SRC  := $(wildcard Sources/SonyTrayMac/*.swift)
 TEST_SRC := $(wildcard Sources/SonyProtocolTests/*.swift)
+SESSION_TEST_SRC := $(wildcard Tests/SessionTests/*.swift) \
+	Sources/SonyTrayMac/Concurrency.swift Sources/SonyTrayMac/DeviceSelection.swift \
+	Sources/SonyTrayMac/HeadphonesSession.swift Sources/SonyTrayMac/MainViewModel.swift \
+	Sources/SonyTrayMac/VerticalSlider.swift Sources/SonyTrayMac/FlyoutView.swift \
+	Sources/SonyTrayMac/StatusIcon.swift
 
 # Empty on a healthy toolchain; see scripts/swift-compat-flags.sh.
 COMPAT := $(shell sh scripts/swift-compat-flags.sh $(BUILD))
@@ -55,8 +60,15 @@ $(BUILD)/SonyProtocolTests: $(BUILD)/lib/libSonyProtocolKit.a $(TEST_SRC)
 		-I $(BUILD)/lib -L $(BUILD)/lib -lSonyProtocolKit \
 		-o $@ $(TEST_SRC)
 
-test: $(BUILD)/SonyProtocolTests
-	@$<
+$(BUILD)/SonySessionTests: $(BUILD)/lib/libSonyProtocolKit.a $(SESSION_TEST_SRC)
+	@$(SWIFTC) $(SWIFTFLAGS) -target $(ARCH)-apple-macos$(DEPLOY) \
+		-parse-as-library -I $(BUILD)/lib -L $(BUILD)/lib -lSonyProtocolKit \
+		-framework AppKit -framework SwiftUI -framework Combine \
+		-o $@ $(SESSION_TEST_SRC)
+
+test: $(BUILD)/SonyProtocolTests $(BUILD)/SonySessionTests
+	@$(BUILD)/SonyProtocolTests
+	@$(BUILD)/SonySessionTests
 
 # --- app bundle --------------------------------------------------------------------------
 

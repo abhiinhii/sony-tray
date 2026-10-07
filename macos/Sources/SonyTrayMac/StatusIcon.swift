@@ -12,15 +12,25 @@ enum StatusIcon {
         let configured = symbol.withSymbolConfiguration(
             NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)) ?? symbol
 
+        // An app badge distinguishes Sony Tray from macOS's headphones/sound status item.
+        let branded = NSImage(size: NSSize(width: 24, height: 18), flipped: false) { _ in
+            configured.draw(in: NSRect(x: 0, y: 1, width: 16, height: 16))
+            ("S" as NSString).draw(at: NSPoint(x: 17, y: 0), withAttributes: [
+                .font: NSFont.systemFont(ofSize: 9, weight: .bold),
+                .foregroundColor: NSColor.black,
+            ])
+            return true
+        }
+
         guard !connected else {
-            configured.isTemplate = true
-            return configured
+            branded.isTemplate = true
+            return branded
         }
 
         // Template images are tinted through their alpha channel, so drawing the glyph at partial
         // opacity dims it correctly in both light and dark menu bars.
-        let dimmed = NSImage(size: configured.size, flipped: false) { rect in
-            configured.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 0.4)
+        let dimmed = NSImage(size: branded.size, flipped: false) { rect in
+            branded.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 0.4)
             return true
         }
         dimmed.isTemplate = true

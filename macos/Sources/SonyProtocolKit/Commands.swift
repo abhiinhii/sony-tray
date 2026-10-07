@@ -72,7 +72,9 @@ public enum Commands {
     public static func getNcAmb(_ variant: NcAmbVariant) -> [UInt8] { [0x66, variant.rawValue] }
     public static func getEqStatus() -> [UInt8] { [0x52, 0x00] }
     public static func getEq() -> [UInt8] { [0x56, 0x00] }
-    public static func getBattery(_ kind: BatteryKind) -> [UInt8] { [0x22, kind.rawValue] }
+    public static func getBattery(_ kind: BatteryKind, withThreshold: Bool = false) -> [UInt8] {
+        [0x22, kind.rawValue + (withThreshold ? 0x08 : 0)]
+    }
 
     // POWER_SET_STATUS(0x24), PowerInquiredType::POWER_OFF(0x03), PowerOffSettingValue::USER_POWER_OFF(0x01)
     public static func powerOff() -> [UInt8] { [0x24, 0x03, 0x01] }

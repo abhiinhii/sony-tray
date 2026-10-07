@@ -76,7 +76,7 @@ left behind in `~/Library/Logs/SonyTray`; delete that folder too if you want no 
 ## Build
 
 ```bash
-make test             # protocol conformance suite (64 tests)
+make test             # protocol suite + session/UI regressions (mock transport, no Bluetooth)
 make app              # universal SonyTray.app in build/
 make run              # build, then launch from build/ without installing
 make probe            # console connectivity harness
@@ -89,6 +89,12 @@ make uninstall        # remove the installed copy
 
 `make app UNIVERSAL=0` builds only for this machine (faster). `CONFIG=debug` swaps `-O` for
 `-Onone -g`.
+
+The session/UI regression executable substitutes a mock transport for IOBluetooth. It checks
+connected-device selection, early replies/disconnects, cancellation, repeated refreshes, silent
+channel recovery, stop/start races, battery inquiry variants, edits during background refresh,
+devices without noise controls, and native vertical EQ controls. It does not verify
+real headset compatibility. Run `make app` as well to compile the production Bluetooth adapter.
 
 ## Running from a build tree
 
@@ -131,12 +137,34 @@ connected, check whether it is holding a multipoint link to a phone.
 
 ## Diagnostics
 
+When several Sony devices are paired, Sony Tray prefers the one connected to this Mac. It
+refreshes EQ and battery readings every 15 seconds and checks for a protocol reply, so a stalled
+channel is closed and retried even if macOS never sends a disconnect callback. This closes only
+Sony Tray's RFCOMM channel; the shared audio connection remains managed by macOS.
+Noise and ambient controls are shown only when the headset announces a supported variant.
+EQ bands are editable with Manual/Custom presets; ambient controls are enabled in Ambient mode.
+
+For hardware validation, exercise repeated reconnects, sleep/wake, and Bluetooth toggles; pair
+multiple Sony headsets with only one connected; and check battery/EQ refresh plus audio continuity.
+The automated mock tests cannot establish compatibility with a particular headset or macOS release.
+
 ```bash
 make probe
 ```
 
-Connects, prints the handshake and every decoded event, toggles Ambient → Noise Cancelling, and
-exits (0 on success, 1 if the session never became ready).
+Connects, checks actual device replies, briefly changes noise mode when supported, then restores
+the original settings. It exits with 0 on success or 1 on failure.
+
+For a longer hardware check, quit the normal menu-bar app first and launch:
+
+```bash
+open -W build/SonyTray.app --args --probe --verify
+```
+
+This additionally changes one band of an active Manual/Custom EQ preset by one step and restores
+it, verifies two automatic refresh cycles, then reopens the app's RFCOMM channel three times.
+Each step requires fresh device replies; PASS/FAIL results are recorded in the log below.
+It does not toggle macOS Bluetooth or disconnect the shared audio link.
 
 Logs — including raw frame hex for every message sent and received — live at:
 

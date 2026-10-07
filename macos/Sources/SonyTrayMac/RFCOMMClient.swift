@@ -57,32 +57,37 @@ final class RFCOMMClient: NSObject, @preconcurrency IOBluetoothRFCOMMChannelDele
             throw TransportError.noPairedSonyDevice
         }
         let uuid = IOBluetoothSDPUUID(bytes: serviceUUIDBytes, length: serviceUUIDBytes.count)
+        let found = DeviceSelection.preferred(paired,
+            hasService: { $0.getServiceRecord(for: uuid) != nil },
+            isConnected: { $0.isConnected() })
+        if let found, found.isConnected() {
+            Log.info("Found Sony device: \(found.name ?? "Sony Headphones") connected=true")
+            return (found, found.name ?? found.nameOrAddress ?? "Sony Headphones")
+        }
         var sdpQueryIssued = false
         for device in paired {
-            if device.getServiceRecord(for: uuid) != nil {
-                let name = device.name ?? device.nameOrAddress ?? "Sony Headphones"
-                // isConnected reports whether this Mac currently holds a baseband link to the
-                // headset. Without one the headset will accept an MDR channel and then hang up
-                // within a second or two, so it is the first thing to check in a bug report.
-                Log.info("Found Sony device: \(name) (\(device.addressString ?? "?"), "
-                    + "connected=\(device.isConnected()))")
-                return (device, name)
-            }
             // Only re-query devices that plausibly are the headset; a full SDP sweep of every
             // paired peripheral on each reconnect attempt would be needlessly chatty.
-            if let name = device.name, name.localizedCaseInsensitiveContains("WH-")
-                || name.localizedCaseInsensitiveContains("WF-")
-                || name.localizedCaseInsensitiveContains("LinkBuds")
-                || name.localizedCaseInsensitiveContains("ULT")
-                || name.localizedCaseInsensitiveContains("Sony") {
+            if device.isConnected(), device.getServiceRecord(for: uuid) == nil,
+               DeviceSelection.mayBeSony(device.name ?? "") {
                 device.performSDPQuery(nil)
                 sdpQueryIssued = true
             }
         }
+        if !sdpQueryIssued, let found {
+            Log.info("Found Sony device: \(found.name ?? "Sony Headphones") connected=false")
+            return (found, found.name ?? found.nameOrAddress ?? "Sony Headphones")
+        }
         throw sdpQueryIssued ? TransportError.sdpNotReady : TransportError.noPairedSonyDevice
     }
 
+    static func isBluetoothOff() -> Bool {
+        guard let controller = IOBluetoothHostController.default() else { return false }
+        return controller.powerState != kBluetoothHCIPowerStateON
+    }
+
     func connect(to device: IOBluetoothDevice) async throws {
+        self.device = device
         let uuid = IOBluetoothSDPUUID(bytes: Self.serviceUUIDBytes, length: Self.serviceUUIDBytes.count)
         guard let record = device.getServiceRecord(for: uuid) else {
             throw TransportError.serviceUnreachable
@@ -93,7 +98,6 @@ final class RFCOMMClient: NSObject, @preconcurrency IOBluetoothRFCOMMChannelDele
             throw TransportError.serviceUnreachable
         }
 
-        self.device = device
         intentionalClose = false
         // Armed before the open so an openComplete that lands before the await below is still
         // delivered, instead of being dropped and stalling until the timeout.
@@ -101,7 +105,6 @@ final class RFCOMMClient: NSObject, @preconcurrency IOBluetoothRFCOMMChannelDele
         var opened: IOBluetoothRFCOMMChannel?
         let result = device.openRFCOMMChannelAsync(&opened, withChannelID: channelID, delegate: self)
         guard result == kIOReturnSuccess, let opened else {
-            self.device = nil
             throw TransportError.openFailed(result)
         }
         channel = opened
@@ -111,10 +114,18 @@ final class RFCOMMClient: NSObject, @preconcurrency IOBluetoothRFCOMMChannelDele
         do {
             try await openWaiter.wait(timeout: 10) { TransportError.openFailed(kIOReturnTimeout) }
         } catch {
+            refreshServices()
             close()
             throw error
         }
         Log.info("RFCOMM channel open (channel id \(channelID), MTU \(opened.getMTU()))")
+    }
+
+    /// A failed open/handshake can be using an obsolete cached RFCOMM channel id. Refresh the
+    /// service record for the next attempt without opening or tearing down the shared audio link.
+    func refreshServices() {
+        guard let device, device.isConnected() else { return }
+        device.performSDPQuery(nil)
     }
 
     func send(_ type: MessageType, seq: UInt8, payload: [UInt8]) throws {
@@ -150,7 +161,10 @@ final class RFCOMMClient: NSObject, @preconcurrency IOBluetoothRFCOMMChannelDele
         if let channel {
             self.channel = nil
             _ = channel.setDelegate(nil)
-            _ = channel.close()
+            let result = channel.close()
+            if result != kIOReturnSuccess {
+                Log.info("RFCOMM close failed (IOReturn 0x\(String(UInt32(bitPattern: result), radix: 16)))")
+            }
         }
         // Deliberately *not* device.closeConnection(): that tears down the shared baseband/ACL
         // link rather than just our channel. macOS owns that link — A2DP and HFP ride on it — and
