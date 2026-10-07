@@ -5,6 +5,15 @@ namespace SonyProtocol.Tests;
 
 public class CommandsTests
 {
+    [Theory]
+    [InlineData(BatteryKind.Single, 0x08)]
+    [InlineData(BatteryKind.LeftRight, 0x09)]
+    [InlineData(BatteryKind.Cradle, 0x0A)]
+    public void GetBattery_ThresholdInquiryMatchesWireType(BatteryKind kind, byte expected)
+    {
+        Assert.Equal(new byte[] { 0x22, expected }, Commands.GetBattery(kind, withThreshold: true));
+    }
+
     [Fact]
     public void GetCommands_MatchReferenceBytes()
     {
