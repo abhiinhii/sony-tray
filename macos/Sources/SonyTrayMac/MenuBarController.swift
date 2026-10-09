@@ -10,6 +10,8 @@ final class MenuBarController: NSObject {
     private let popover: NSPopover
     private let viewModel: MainViewModel
     private var cancellables = Set<AnyCancellable>()
+    private var layoutUpdateQueued = false
+    private var resizingContent = false
 
     init(viewModel: MainViewModel, statusItem providedStatusItem: NSStatusItem? = nil,
          popover providedPopover: NSPopover? = nil) {
@@ -20,7 +22,17 @@ final class MenuBarController: NSObject {
 
         popover.behavior = .transient
         popover.animates = false
-        popover.contentViewController = NSHostingController(rootView: FlyoutView(viewModel: viewModel))
+        let hosting = FlyoutHostingController(rootView: FlyoutView(viewModel: viewModel,
+            maximumHeight: maximumContentHeight(), onHide: { [weak self] in self?.hidePopover() }))
+        // The controller owns popover geometry. Hosting constraints must not grow an already
+        // positioned native window upward before its content size and anchor are updated.
+        hosting.sizingOptions = [.intrinsicContentSize]
+        hosting.onLayout = { [weak self] in self?.queueContentResize() }
+        popover.contentViewController = hosting
+
+        viewModel.objectWillChange
+            .sink { [weak self] _ in self?.queueContentResize() }
+            .store(in: &cancellables)
 
         if let button = statusItem.button {
             button.image = StatusIcon.make(connected: false)
@@ -52,11 +64,15 @@ final class MenuBarController: NSObject {
                 guard let self, let window = notification.object as? NSWindow,
                       window === self.statusItem.button?.window else { return }
                 self.closePopoverIfAnchorUnavailable()
+                self.queueContentResize()
             }
             .store(in: &cancellables)
 
         NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
-            .sink { [weak self] _ in self?.closePopoverIfAnchorUnavailable() }
+            .sink { [weak self] _ in
+                self?.closePopoverIfAnchorUnavailable()
+                self?.queueContentResize()
+            }
             .store(in: &cancellables)
     }
 
@@ -88,10 +104,58 @@ final class MenuBarController: NSObject {
             popover.performClose(nil)
             return
         }
+        resizeContent(reanchor: false)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         // A status-item popover belongs to an .accessory app that is not active, so it would open
         // behind the frontmost window's key state without this.
         popover.contentViewController?.view.window?.makeKey()
+    }
+
+    private func hidePopover() {
+        popover.performClose(nil)
+    }
+
+    private func maximumContentHeight() -> CGFloat {
+        let screen = statusItem.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens.first
+        // Native popover borders and its arrow need space beyond the hosting content.
+        // The visible frame also excludes the Dock and ordinary menu bar.
+        return max(1, (screen?.visibleFrame.height ?? 600) - 40)
+    }
+
+    private func queueContentResize() {
+        guard !resizingContent, !layoutUpdateQueued else { return }
+        layoutUpdateQueued = true
+        // objectWillChange precedes the new model values. viewDidLayout also runs inside a
+        // native layout pass, so resizing another view/window must wait for that pass to end.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.layoutUpdateQueued = false
+            self.resizeContent()
+        }
+    }
+
+    private func resizeContent(reanchor: Bool = true) {
+        guard !resizingContent,
+              let hosting = popover.contentViewController as? FlyoutHostingController else { return }
+        resizingContent = true
+        defer { resizingContent = false }
+        let maximumHeight = maximumContentHeight()
+        if hosting.rootView.maximumHeight != maximumHeight {
+            hosting.rootView.maximumHeight = maximumHeight
+        }
+        hosting.view.layoutSubtreeIfNeeded()
+        let fitting = hosting.view.fittingSize
+        guard fitting.width.isFinite, fitting.height.isFinite,
+              fitting.width > 0, fitting.height > 0 else { return }
+        let size = NSSize(width: ceil(fitting.width), height: min(ceil(fitting.height), maximumHeight))
+        let changed = abs(popover.contentSize.width - size.width) > 0.5
+            || abs(popover.contentSize.height - size.height) > 0.5
+        if hosting.view.frame.size != size { hosting.view.setFrameSize(size) }
+        if changed { popover.contentSize = size }
+        // A queued update after Hide or Escape must never reopen the popover.
+        if reanchor, changed, popover.isShown, statusItem.isVisible, let button = statusItem.button {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
     }
 
     private func closePopoverIfAnchorUnavailable() {
@@ -151,5 +215,15 @@ final class MenuBarController: NSObject {
 
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+}
+
+@MainActor
+private final class FlyoutHostingController: NSHostingController<FlyoutView> {
+    var onLayout: (() -> Void)?
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        onLayout?()
     }
 }

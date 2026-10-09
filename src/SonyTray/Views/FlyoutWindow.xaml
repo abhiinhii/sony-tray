@@ -7,17 +7,40 @@
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
     </Window.Resources>
+    <Window.InputBindings>
+        <KeyBinding Key="Escape" Command="ApplicationCommands.Close"/>
+    </Window.InputBindings>
+    <Window.CommandBindings>
+        <CommandBinding Command="ApplicationCommands.Close" Executed="HideFlyout" CanExecute="CanHideFlyout"/>
+    </Window.CommandBindings>
     <Border Background="#F2242424" CornerRadius="8" Padding="16" Margin="8"
             BorderBrush="#3FFFFFFF" BorderThickness="1">
         <Border.Effect>
             <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.5"/>
         </Border.Effect>
-        <StackPanel>
-            <DockPanel Margin="0,0,0,12">
-                <TextBlock Text="{Binding DeviceName}" Foreground="White" FontSize="16" FontWeight="SemiBold"/>
-                <Button DockPanel.Dock="Right" Content="&#x23FB;" FontSize="14" Foreground="#B0FFFFFF"
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0" Margin="0,0,0,12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="{Binding DeviceName}" Foreground="White" FontSize="16"
+                           FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                           ToolTip="{Binding DeviceName}"/>
+                <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Text="{Binding BatteryText}" Foreground="#B0FFFFFF" FontSize="12"
+                           Margin="0,4,0,0" TextWrapping="Wrap"/>
+                <Button Grid.Column="1" Content="&#x23FB;" FontSize="14" Foreground="#B0FFFFFF"
                         Background="Transparent" BorderThickness="0" Padding="6,0" Cursor="Hand"
-                        Margin="6,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Right"
+                        Margin="6,0,0,0" VerticalAlignment="Center"
                         ToolTip="Turn off headphones" Command="{Binding PowerOffCommand}"
                         IsEnabled="{Binding IsConnected}"
                         Visibility="{Binding PowerOffVisible, Converter={StaticResource BoolToVis}}">
@@ -28,98 +51,107 @@
                         </ControlTemplate>
                     </Button.Template>
                 </Button>
-                <TextBlock Text="{Binding BatteryText}" Foreground="#B0FFFFFF" FontSize="14"
-                           DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-            </DockPanel>
+                <Button x:Name="CloseFlyoutButton" Grid.Column="2" Content="&#x00D7;" FontSize="20"
+                        Foreground="#B0FFFFFF" Background="Transparent" BorderThickness="0"
+                        Width="24" Height="24" Margin="4,0,0,0" Cursor="Hand"
+                        ToolTip="Hide Sony Tray" AutomationProperties.Name="Hide Sony Tray"
+                        Command="ApplicationCommands.Close"/>
+            </Grid>
+            <ScrollViewer x:Name="FlyoutScrollViewer" Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Auto">
+                <!-- Keep the normal control width while narrow work areas scroll the body. -->
+                <StackPanel Width="290">
 
-            <UniformGrid Columns="{Binding ModeChipColumns}" IsEnabled="{Binding IsConnected}">
-                <UniformGrid.Resources>
-                    <Style TargetType="RadioButton">
-                        <Setter Property="Foreground" Value="White"/>
-                        <Setter Property="Margin" Value="2"/>
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="RadioButton">
-                                    <Border x:Name="Chip" Background="#33FFFFFF" CornerRadius="6" Padding="8,10">
-                                        <ContentPresenter HorizontalAlignment="Center"/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsChecked" Value="True">
-                                            <Setter TargetName="Chip" Property="Background" Value="#FF0078D4"/>
-                                        </Trigger>
-                                        <Trigger Property="IsEnabled" Value="False">
-                                            <Setter Property="Opacity" Value="0.4"/>
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                    </Style>
-                </UniformGrid.Resources>
-                <RadioButton Content="Noise Cancel" GroupName="Mode" IsChecked="{Binding IsNcSelected}"
-                             Visibility="{Binding HasNcChip, Converter={StaticResource BoolToVis}}"/>
-                <RadioButton Content="Ambient" GroupName="Mode" IsChecked="{Binding IsAmbientSelected}"/>
-                <RadioButton Content="Off" GroupName="Mode" IsChecked="{Binding IsOffSelected}"/>
-            </UniformGrid>
+                    <UniformGrid Columns="{Binding ModeChipColumns}" IsEnabled="{Binding IsConnected}">
+                        <UniformGrid.Resources>
+                            <Style TargetType="RadioButton">
+                                <Setter Property="Foreground" Value="White"/>
+                                <Setter Property="Margin" Value="2"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="RadioButton">
+                                            <Border x:Name="Chip" Background="#33FFFFFF" CornerRadius="6" Padding="8,10">
+                                                <ContentPresenter HorizontalAlignment="Center"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsChecked" Value="True">
+                                                    <Setter TargetName="Chip" Property="Background" Value="#FF0078D4"/>
+                                                </Trigger>
+                                                <Trigger Property="IsEnabled" Value="False">
+                                                    <Setter Property="Opacity" Value="0.4"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </UniformGrid.Resources>
+                        <RadioButton Content="Noise Cancel" GroupName="Mode" IsChecked="{Binding IsNcSelected}"
+                                     Visibility="{Binding HasNcChip, Converter={StaticResource BoolToVis}}"/>
+                        <RadioButton Content="Ambient" GroupName="Mode" IsChecked="{Binding IsAmbientSelected}"/>
+                        <RadioButton Content="Off" GroupName="Mode" IsChecked="{Binding IsOffSelected}"/>
+                    </UniformGrid>
 
-            <StackPanel Margin="2,12,2,0" IsEnabled="{Binding AmbientControlsEnabled}">
-                <DockPanel>
-                    <TextBlock Text="Ambient level" Foreground="#B0FFFFFF"/>
-                    <TextBlock Text="{Binding AmbientLevel}" Foreground="White" DockPanel.Dock="Right"
-                               HorizontalAlignment="Right"/>
-                </DockPanel>
-                <Slider Minimum="1" Maximum="20" TickFrequency="1" IsSnapToTickEnabled="True"
-                        Value="{Binding AmbientLevel, UpdateSourceTrigger=PropertyChanged}"/>
-                <CheckBox Content="Focus on voice" Foreground="#B0FFFFFF" Margin="0,6,0,0"
-                          IsChecked="{Binding FocusOnVoice}"/>
-            </StackPanel>
+                    <StackPanel Margin="2,12,2,0" IsEnabled="{Binding AmbientControlsEnabled}">
+                        <DockPanel>
+                            <TextBlock Text="Ambient level" Foreground="#B0FFFFFF"/>
+                            <TextBlock Text="{Binding AmbientLevel}" Foreground="White" DockPanel.Dock="Right"
+                                       HorizontalAlignment="Right"/>
+                        </DockPanel>
+                        <Slider Minimum="1" Maximum="20" TickFrequency="1" IsSnapToTickEnabled="True"
+                                Value="{Binding AmbientLevel, UpdateSourceTrigger=PropertyChanged}"/>
+                        <CheckBox Content="Focus on voice" Foreground="#B0FFFFFF" Margin="0,6,0,0"
+                                  IsChecked="{Binding FocusOnVoice}"/>
+                    </StackPanel>
 
-            <StackPanel Margin="2,14,2,0" IsEnabled="{Binding IsConnected}"
-                        Visibility="{Binding HasEqSection, Converter={StaticResource BoolToVis}}">
-                <DockPanel>
-                    <TextBlock Text="Equalizer" Foreground="#B0FFFFFF" VerticalAlignment="Center"/>
-                    <ComboBox DockPanel.Dock="Right" Width="140" HorizontalAlignment="Right"
-                              ItemsSource="{Binding EqPresets}" DisplayMemberPath="Name"
-                              SelectedItem="{Binding SelectedEqPreset}"/>
-                </DockPanel>
-                <ItemsControl x:Name="FrequencyBandsControl" Margin="0,10,0,0" ItemsSource="{Binding FrequencyBands}"
-                              IsEnabled="{Binding EqBandsEditable}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <UniformGrid Rows="1" Height="110"/>
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel>
-                                <Slider Orientation="Vertical" Minimum="{Binding Min}" Maximum="{Binding Max}"
-                                        TickFrequency="1" IsSnapToTickEnabled="True"
-                                        HorizontalAlignment="Center" Height="86"
-                                        Value="{Binding Value, UpdateSourceTrigger=PropertyChanged}"/>
-                                <TextBlock Text="{Binding Label}" Foreground="#80FFFFFF" FontSize="10"
-                                           HorizontalAlignment="Center" VerticalAlignment="Bottom"/>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <StackPanel x:Name="ClearBassPanel" Margin="0,12,0,0"
-                            Visibility="{Binding HasClearBass, Converter={StaticResource BoolToVis}}"
-                            IsEnabled="{Binding EqBandsEditable}">
-                    <DockPanel>
-                        <TextBlock Text="CLEAR BASS" Foreground="#B0FFFFFF" FontSize="11"/>
-                        <TextBlock Text="{Binding ClearBass.Value, StringFormat={}{0:+0;-0;0}}"
-                                   Foreground="White" DockPanel.Dock="Right" HorizontalAlignment="Right"/>
-                    </DockPanel>
-                    <Slider x:Name="ClearBassSlider" Minimum="{Binding ClearBass.Min}"
-                            Maximum="{Binding ClearBass.Max}" TickFrequency="1" IsSnapToTickEnabled="True"
-                            Value="{Binding ClearBass.Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                            ToolTip="CLEAR BASS (-10 to +10)"/>
-                    <TextBlock Text="Select Manual or Custom to edit EQ and CLEAR BASS."
-                               Foreground="#80FFFFFF" FontSize="10" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                    <StackPanel Margin="2,14,2,0" IsEnabled="{Binding IsConnected}"
+                                Visibility="{Binding HasEqSection, Converter={StaticResource BoolToVis}}">
+                        <DockPanel>
+                            <TextBlock Text="Equalizer" Foreground="#B0FFFFFF" VerticalAlignment="Center"/>
+                            <ComboBox DockPanel.Dock="Right" Width="140" HorizontalAlignment="Right"
+                                      ItemsSource="{Binding EqPresets}" DisplayMemberPath="Name"
+                                      SelectedItem="{Binding SelectedEqPreset}"/>
+                        </DockPanel>
+                        <ItemsControl x:Name="FrequencyBandsControl" Margin="0,10,0,0" ItemsSource="{Binding FrequencyBands}"
+                                      IsEnabled="{Binding EqBandsEditable}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Rows="1" Height="110"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel>
+                                        <Slider Orientation="Vertical" Minimum="{Binding Min}" Maximum="{Binding Max}"
+                                                TickFrequency="1" IsSnapToTickEnabled="True"
+                                                HorizontalAlignment="Center" Height="86"
+                                                Value="{Binding Value, UpdateSourceTrigger=PropertyChanged}"/>
+                                        <TextBlock Text="{Binding Label}" Foreground="#80FFFFFF" FontSize="10"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Bottom"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <StackPanel x:Name="ClearBassPanel" Margin="0,12,0,0"
+                                    Visibility="{Binding HasClearBass, Converter={StaticResource BoolToVis}}"
+                                    IsEnabled="{Binding EqBandsEditable}">
+                            <DockPanel>
+                                <TextBlock Text="CLEAR BASS" Foreground="#B0FFFFFF" FontSize="11"/>
+                                <TextBlock Text="{Binding ClearBass.Value, StringFormat={}{0:+0;-0;0}}"
+                                           Foreground="White" DockPanel.Dock="Right" HorizontalAlignment="Right"/>
+                            </DockPanel>
+                            <Slider x:Name="ClearBassSlider" Minimum="{Binding ClearBass.Min}"
+                                    Maximum="{Binding ClearBass.Max}" TickFrequency="1" IsSnapToTickEnabled="True"
+                                    Value="{Binding ClearBass.Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                    ToolTip="CLEAR BASS (-10 to +10)"/>
+                            <TextBlock Text="Select Manual or Custom to edit EQ and CLEAR BASS."
+                                       Foreground="#80FFFFFF" FontSize="10" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <TextBlock Text="{Binding StatusText}" Foreground="#80FFFFFF" FontSize="11" Margin="2,14,2,0"/>
                 </StackPanel>
-            </StackPanel>
-
-            <TextBlock Text="{Binding StatusText}" Foreground="#80FFFFFF" FontSize="11" Margin="2,14,2,0"/>
-        </StackPanel>
+            </ScrollViewer>
+        </Grid>
     </Border>
 </Window>

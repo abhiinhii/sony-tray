@@ -77,6 +77,11 @@ only way to reach classic-Bluetooth RFCOMM on a Mac. The protocol core is ported
 instead, and the C# test suite came with it. Verified on a WH-1000XM5 — full handshake, capability
 discovery, battery, EQ, and live NC/Ambient switching.</sub>
 
+The controls panel stays in the tray/menu bar. Click **×** or press **Escape** to
+hide it without disconnecting or turning off your headphones. Click the headphone
+icon to reopen it. On smaller screens, scroll the controls while the header stays
+visible.
+
 ## 🎧 Supported devices
 
 | Device | Status |
