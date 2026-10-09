@@ -56,6 +56,10 @@ The app is menu-bar only — a headphones glyph appears in your menu bar, and no
 Dock or the app switcher. Left-click it for the controls; right-click for **Launch at Login**,
 **Reveal Logs**, and **Quit**.
 
+Click **×**, press **Escape**, or click the menu-bar icon again to hide the controls.
+Hiding the panel keeps your headphones connected. When the display cannot fit the
+full panel, its controls scroll below the header.
+
 Three things to expect on first launch:
 
 1. **A Bluetooth permission prompt.** Grant it — the app is blocked until you answer, and it can

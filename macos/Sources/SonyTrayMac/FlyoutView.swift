@@ -1,3 +1,4 @@
+import AppKit
 import SonyProtocolKit
 import SwiftUI
 
@@ -7,10 +8,35 @@ import SwiftUI
 struct FlyoutView: View {
     @ObservedObject var viewModel: MainViewModel
     var maximumHeight: CGFloat? = nil
+    var onHide: () -> Void = {}
 
     var body: some View {
+        ViewThatFits(in: .vertical) {
+            // Keep the natural layout when it fits. A compressed hosting frame must not
+            // center a larger flyout across the top edge of the screen.
+            VStack(alignment: .leading, spacing: 14) {
+                header
+                sections
+            }
+            .padding(16)
+            .fixedSize(horizontal: false, vertical: true)
+
+            // The dismissal control stays reachable when a short work area needs scrolling.
+            VStack(alignment: .leading, spacing: 14) {
+                header
+                ScrollView(.vertical) {
+                    sections.frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(16)
+        }
+        .frame(width: 320)
+        .frame(maxHeight: maximumHeight ?? .infinity)
+        .onExitCommand(perform: onHide)
+    }
+
+    private var sections: some View {
         VStack(alignment: .leading, spacing: 14) {
-            header
             if viewModel.hasNoiseControls {
                 modeChips
                 ambientSection
@@ -20,30 +46,34 @@ struct FlyoutView: View {
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
-        .padding(16)
-        .frame(width: 320)
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Text(viewModel.deviceName)
-                .font(.headline)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 4)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(viewModel.deviceName)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                if viewModel.powerOffVisible {
+                    Button(action: viewModel.powerOff) {
+                        Image(systemName: "power")
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!viewModel.isConnected)
+                    .help("Turn off headphones")
+                }
+                HideControlsButton(action: onHide)
+                    .frame(width: 20, height: 20)
+            }
+            // Full left/right/case charging text must not push the Hide button offscreen.
             Text(viewModel.batteryText)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
-            if viewModel.powerOffVisible {
-                Button(action: viewModel.powerOff) {
-                    Image(systemName: "power")
-                        .font(.system(size: 13, weight: .medium))
-                }
-                .buttonStyle(.plain)
-                .disabled(!viewModel.isConnected)
-                .help("Turn off headphones")
-            }
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -139,5 +169,39 @@ struct FlyoutView: View {
         Binding(
             get: { viewModel.bands.first(where: { $0.id == band.id })?.value ?? band.value },
             set: { viewModel.setBandValue($0, id: band.id) })
+    }
+}
+
+/// A native button keeps dismissal accessible and gives Escape a normal key-equivalent path.
+private struct HideControlsButton: NSViewRepresentable {
+    let action: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(action: action) }
+
+    func makeNSView(context: Context) -> NSButton {
+        let image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Hide controls") ?? NSImage()
+        let button = NSButton(image: image, target: context.coordinator, action: #selector(Coordinator.hide(_:)))
+        button.isBordered = false
+        button.imageScaling = .scaleProportionallyDown
+        button.keyEquivalent = "\u{1b}"
+        button.keyEquivalentModifierMask = []
+        button.toolTip = "Hide controls (Esc)"
+        button.setAccessibilityLabel("Hide controls")
+        return button
+    }
+
+    func updateNSView(_ button: NSButton, context: Context) {
+        context.coordinator.action = action
+        button.isEnabled = context.environment.isEnabled
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var action: () -> Void
+        init(action: @escaping () -> Void) { self.action = action }
+        @objc func hide(_ button: NSButton) {
+            guard button.isEnabled else { return }
+            action()
+        }
     }
 }

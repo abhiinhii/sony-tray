@@ -125,8 +125,12 @@ func runPopoverTests() async {
         let buttonBounds = hideButton.convert(hideButton.bounds, to: content)
         try SessionTests.check(content.bounds.insetBy(dx: -2, dy: -2).contains(buttonBounds),
             "Hide controls button is clipped outside the native flyout")
+        // A queued content-size update must not bring the flyout back after an explicit hide.
+        session.onDeviceEvent?(.eq(preset: .custom2, clearBass: 0, bands: Array(repeating: 1, count: 10)))
         hideButton.performClick(nil)
         try await SessionTests.eventually { !popover.isShown }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        try SessionTests.check(!popover.isShown, "a queued EQ resize reopened the explicitly hidden flyout")
         try SessionTests.check(model.isConnected && model.statusText == "Connected",
             "Hide controls changed the headphone session state")
     }

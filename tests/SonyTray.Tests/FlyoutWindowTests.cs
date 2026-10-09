@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -245,6 +246,137 @@ public sealed class FlyoutWindowTests
     });
 
     [Fact]
+    public Task HideButton_DismissesFlyoutWithoutPoweringOffHeadphones() => OnSta(() =>
+    {
+        var (session, _, window) = CreateConnectedView();
+        var button = Assert.IsType<Button>(window.FindName("CloseFlyoutButton"));
+        Assert.Equal("Hide Sony Tray", button.ToolTip);
+        window.Visibility = Visibility.Collapsed;
+        var peer = new ButtonAutomationPeer(button);
+        var provider = Assert.IsAssignableFrom<IInvokeProvider>(peer.GetPattern(PatternInterface.Invoke));
+        provider.Invoke();
+        Pump();
+        Assert.Equal(Visibility.Hidden, window.Visibility);
+        Assert.Equal(0, session.PowerOffSends);
+    });
+
+    [Fact]
+    public Task EscapeBinding_DismissesFlyoutWithoutPoweringOffHeadphones() => OnSta(() =>
+    {
+        var (session, _, window) = CreateConnectedView();
+        KeyBinding escape = Assert.Single(window.InputBindings.OfType<KeyBinding>(),
+            binding => binding.Key == Key.Escape && binding.Modifiers == ModifierKeys.None);
+        Assert.Same(ApplicationCommands.Close, escape.Command);
+        window.Visibility = Visibility.Collapsed;
+        ApplicationCommands.Close.Execute(null, window);
+        Pump();
+        Assert.Equal(Visibility.Hidden, window.Visibility);
+        Assert.Equal(0, session.PowerOffSends);
+    });
+
+    [Fact]
+    public Task ShortWorkArea_ScrollsBodyWhileHideButtonRemainsReachable() => OnSta(() =>
+    {
+        var (session, _, window) = CreateConnectedView();
+        session.Emit(new EqEvent(EqPreset.Manual, 3, [0, 0, 0, 0, 0]));
+        var root = Assert.IsAssignableFrom<FrameworkElement>(window.Content);
+        root.Measure(new Size(312, 292));
+        root.Arrange(new Rect(0, 0, 312, 292));
+        root.UpdateLayout();
+        Pump();
+        var scroll = Assert.IsType<ScrollViewer>(window.FindName("FlyoutScrollViewer"));
+        var hide = Assert.IsType<Button>(window.FindName("CloseFlyoutButton"));
+        Assert.Equal(ScrollBarVisibility.Auto, scroll.VerticalScrollBarVisibility);
+        Assert.True(scroll.ViewportHeight > 0);
+        Assert.True(scroll.ScrollableHeight > 0);
+        Assert.True(hide.ActualWidth > 0 && hide.ActualHeight > 0);
+        Rect bounds = hide.TransformToAncestor(root).TransformBounds(new Rect(hide.RenderSize));
+        Assert.True(bounds.Left >= 0 && bounds.Top >= 0);
+        Assert.True(bounds.Right <= root.ActualWidth && bounds.Bottom <= root.ActualHeight);
+        Assert.False(window.IsVisible);
+    });
+    [Theory]
+    [InlineData(312)]
+    [InlineData(232)]
+    public Task NarrowHeader_LeftRightCaseChargingReadingsKeepHideButtonReachable(int width) => OnSta(() =>
+    {
+        var (session, vm, window) = CreateConnectedView();
+        session.Connect(BatteryKind.LeftRight, BatteryKind.Cradle);
+        session.Emit(new LeftRightBatteryEvent(100, ChargingStatus.Charging, 100, ChargingStatus.Charging));
+        session.Emit(new CradleBatteryEvent(100, ChargingStatus.Charging));
+        var root = Assert.IsAssignableFrom<FrameworkElement>(window.Content);
+        root.Measure(new Size(width, 292));
+        root.Arrange(new Rect(0, 0, width, 292));
+        root.UpdateLayout();
+        Pump();
+        var hide = Assert.IsType<Button>(window.FindName("CloseFlyoutButton"));
+        Rect bounds = hide.TransformToAncestor(root).TransformBounds(new Rect(hide.RenderSize));
+        Assert.True(bounds.Left >= 0 && bounds.Top >= 0);
+        Assert.True(bounds.Right <= root.ActualWidth && bounds.Bottom <= root.ActualHeight,
+            "The Hide button must remain inside the flyout even with full earbud/case charging readings.");
+        TextBlock battery = Assert.Single(Descendants<TextBlock>(root), text => text.Text == vm.BatteryText);
+        Rect batteryBounds = battery.TransformToAncestor(root).TransformBounds(new Rect(battery.RenderSize));
+        Assert.True(batteryBounds.Right <= root.ActualWidth);
+        Assert.False(window.IsVisible);
+    });
+    [Fact]
+    public Task NarrowWorkArea_ScrollsBodyHorizontallyToKeepControlsReadable() => OnSta(() =>
+    {
+        var (session, _, window) = CreateConnectedView();
+        session.Emit(new EqEvent(EqPreset.Manual, 3, [0, 0, 0, 0, 0]));
+        var root = Assert.IsAssignableFrom<FrameworkElement>(window.Content);
+        root.Measure(new Size(232, 292));
+        root.Arrange(new Rect(0, 0, 232, 292));
+        root.UpdateLayout();
+        Pump();
+        var scroll = Assert.IsType<ScrollViewer>(window.FindName("FlyoutScrollViewer"));
+        Assert.Equal(ScrollBarVisibility.Auto, scroll.HorizontalScrollBarVisibility);
+        Assert.True(scroll.ScrollableWidth > 0);
+        RadioButton noiseCancel = ModeButton(root, "Noise Cancel");
+        TextBlock label = Assert.Single(Descendants<TextBlock>(noiseCancel), text => text.Text == "Noise Cancel");
+        Assert.True(label.ActualWidth >= label.DesiredSize.Width);
+        scroll.ScrollToRightEnd();
+        Pump();
+        Assert.True(scroll.HorizontalOffset > 0);
+        Assert.False(window.IsVisible);
+    });
+    [Fact]
+    public Task NormalWidth_KeepsAllControlsInOneHorizontalViewport() => OnSta(() =>
+    {
+        var (session, _, window) = CreateConnectedView();
+        session.Emit(new EqEvent(EqPreset.Manual, 3, [0, 0, 0, 0, 0]));
+        FrameworkElement root = Layout(window);
+        var scroll = Assert.IsType<ScrollViewer>(window.FindName("FlyoutScrollViewer"));
+        Assert.Equal(0, scroll.ScrollableWidth);
+        foreach (RadioButton mode in Descendants<RadioButton>(root))
+        {
+            Rect bounds = mode.TransformToAncestor(root).TransformBounds(new Rect(mode.RenderSize));
+            Assert.True(bounds.Left >= 0 && bounds.Right <= root.ActualWidth);
+        }
+        Assert.False(window.IsVisible);
+    });
+    [Fact]
+    public Task NormalWidth_RendersAllFrequencySlidersAndLabels() => OnSta(() =>
+    {
+        var (session, _, window) = CreateConnectedView();
+        session.Emit(new EqEvent(EqPreset.Manual, 3, [0, 0, 0, 0, 0]));
+        FrameworkElement root = Layout(window);
+        var frequencies = Assert.IsType<ItemsControl>(window.FindName("FrequencyBandsControl"));
+        Slider[] sliders = Descendants<Slider>(frequencies).ToArray();
+        Assert.Equal(5, sliders.Length);
+        foreach (Slider slider in sliders)
+        {
+            Assert.True(slider.ActualWidth > 0 && slider.ActualHeight > 0,
+                $"Slider size is {slider.ActualWidth}x{slider.ActualHeight}, frequencies={frequencies.ActualWidth}x{frequencies.ActualHeight}.");
+            Rect bounds = slider.TransformToAncestor(root).TransformBounds(new Rect(slider.RenderSize));
+            Assert.True(bounds.Left >= 0 && bounds.Right <= root.ActualWidth,
+                $"Slider bounds {bounds} exceed flyout width {root.ActualWidth}.");
+        }
+        foreach (TextBlock label in Descendants<TextBlock>(frequencies))
+            Assert.True(label.ActualWidth > 0 && label.ActualHeight > 0);
+        Assert.False(window.IsVisible);
+    });
+    [Fact]
     public void ApplicationIcon_IsPackagedAsNonemptyWpfResource()
     {
         var assembly = typeof(FlyoutWindow).Assembly;
@@ -266,12 +398,13 @@ public sealed class FlyoutWindowTests
         public event Action<DeviceEvent>? DeviceUpdated;
         public event Action<DeviceCapabilities>? CapabilitiesResolved;
         internal List<NcAmbMode> ModeSends { get; } = [];
-        internal void Connect()
+        internal int PowerOffSends { get; private set; }
+        internal void Connect(params BatteryKind[] batteries)
         {
             ConnectionVersion++;
             State = SessionState.Connecting; StateChanged?.Invoke(State);
             CapabilitiesResolved?.Invoke(new DeviceCapabilities(NcAmbVariant.DualSeamless, true,
-                [BatteryKind.Single], true, true, "Mock headphones"));
+                batteries.Length == 0 ? [BatteryKind.Single] : batteries, true, true, "Mock headphones"));
             State = SessionState.Ready; StateChanged?.Invoke(State);
         }
         internal void Drop()
@@ -289,7 +422,7 @@ public sealed class FlyoutWindowTests
         public Task SetEqPresetAsync(EqPreset preset) => Task.CompletedTask;
         public Task SetEqBandsAsync(EqPreset preset, int clearBass, int[] bands) => Task.CompletedTask;
         public Task SetEqBands10Async(EqPreset preset, int[] bands) => Task.CompletedTask;
-        public Task PowerOffAsync() => Task.CompletedTask;
+        public Task PowerOffAsync() { PowerOffSends++; return Task.CompletedTask; }
         public Task RefreshAsync() => Task.CompletedTask;
     }
 }
