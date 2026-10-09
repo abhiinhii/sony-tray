@@ -92,6 +92,68 @@ func runPopoverTests() async {
         }
     }
 
+    await SessionTests.test("native flyout has an accessible Hide controls button that closes only the popover") {
+        let session = HeadphonesSession()
+        let model = MainViewModel(session: session)
+        session.onStateChanged?(.ready)
+        session.onDeviceEvent?(.eq(preset: .custom1, clearBass: 2, bands: [1, 2, 3, 4, 5]))
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let popover = NSPopover()
+        let controller = MenuBarController(viewModel: model, statusItem: item, popover: popover)
+        popover.behavior = .applicationDefined
+        defer {
+            popover.performClose(nil)
+            NSStatusBar.system.removeStatusItem(item)
+            withExtendedLifetime(controller) {}
+        }
+        try await openPopover(controller, item: item, popover: popover, stage: "Hide controls action")
+        guard let content = popover.contentViewController?.view else {
+            throw TestError.failed("native Hide controls fixture has no content")
+        }
+        content.layoutSubtreeIfNeeded()
+        guard let hideButton = popoverVisibleControls(in: content).compactMap({ $0 as? NSButton })
+            .first(where: { $0.accessibilityLabel() == "Hide controls" }) else {
+            throw TestError.failed("flyout has no accessible Hide controls button")
+        }
+        let buttonBounds = hideButton.convert(hideButton.bounds, to: content)
+        try SessionTests.check(content.bounds.insetBy(dx: -2, dy: -2).contains(buttonBounds),
+            "Hide controls button is clipped outside the native flyout")
+        hideButton.performClick(nil)
+        try await SessionTests.eventually { !popover.isShown }
+        try SessionTests.check(model.isConnected && model.statusText == "Connected",
+            "Hide controls changed the headphone session state")
+    }
+
+    await SessionTests.test("Escape dismisses the native production flyout") {
+        let session = HeadphonesSession()
+        let model = MainViewModel(session: session)
+        session.onStateChanged?(.ready)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let popover = NSPopover()
+        let controller = MenuBarController(viewModel: model, statusItem: item, popover: popover)
+        popover.behavior = .applicationDefined
+        defer {
+            popover.performClose(nil)
+            NSStatusBar.system.removeStatusItem(item)
+            withExtendedLifetime(controller) {}
+        }
+        try await openPopover(controller, item: item, popover: popover, stage: "Escape action")
+        guard let window = popover.contentViewController?.view.window,
+              let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53) else {
+            throw TestError.failed("native Escape fixture has no window or key event")
+        }
+        window.sendEvent(escape)
+        do {
+            try await SessionTests.eventually { !popover.isShown }
+        } catch {
+            throw TestError.failed("Escape left the native flyout open")
+        }
+        try SessionTests.check(model.isConnected && model.statusText == "Connected",
+            "Escape changed the headphone session state")
+    }
+
     await SessionTests.test("popover anchors distinguish menu-bar auto-hide from hidden or removed displays") {
         let primary = NSRect(x: 0, y: 0, width: 1470, height: 956)
         let left = NSRect(x: -1920, y: -120, width: 1920, height: 1080)
