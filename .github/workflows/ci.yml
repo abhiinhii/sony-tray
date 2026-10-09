@@ -34,3 +34,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: All macOS tests
         run: make -C macos test
+      - name: Universal macOS Release build
+        run: make -C macos app verify-portable
+      - name: Verify bundle signature
+        run: codesign --verify --deep --strict macos/build/SonyTray.app

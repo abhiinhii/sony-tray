@@ -19,9 +19,8 @@ func runPopoverTests() async {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let popover = NSPopover()
         let controller = MenuBarController(viewModel: model, statusItem: item, popover: popover)
-        // A command-line test has no frontmost application window. Keep unrelated desktop
-        // focus changes from dismissing this real native popover before its anchor is tested.
-        // The UI Lab separately exercises the production .transient behavior.
+        // Keep unrelated desktop focus changes from dismissing the real native popover
+        // during the anchor test. Sizing still uses the unmodified production controller.
         popover.behavior = .applicationDefined
         defer {
             popover.performClose(nil)
@@ -29,14 +28,8 @@ func runPopoverTests() async {
             withExtendedLifetime(controller) {}
         }
 
-        try await SessionTests.eventually { popoverTestAnchorIsOnscreen(item) }
-        preparePopoverTestContent(popover)
-        controller.togglePopover()
-        do {
-            try await SessionTests.eventually { popover.isShown }
-        } catch {
-            throw TestError.failed("native popover did not open; item visible=\(item.isVisible), window=\(String(describing: item.button?.window?.frame)), windowVisible=\(String(describing: item.button?.window?.isVisible)), button=\(String(describing: item.button?.bounds)), content=\(String(describing: popover.contentViewController?.view.frame)), fitting=\(String(describing: popover.contentViewController?.view.fittingSize)), contentSize=\(popover.contentSize)")
-        }
+        try await openPopover(controller, item: item, popover: popover, stage: "initial six-band open")
+        try await assertPopoverFits(popover, verticalSliders: 5, stage: "initial six-band open")
         item.isVisible = false
         do {
             try await SessionTests.eventually { !popover.isShown }
@@ -45,20 +38,58 @@ func runPopoverTests() async {
         }
 
         item.isVisible = true
-        try await SessionTests.eventually { popoverTestAnchorIsOnscreen(item) }
-        preparePopoverTestContent(popover)
-        controller.togglePopover()
-        try await SessionTests.eventually { popover.isShown }
-        guard let content = popover.contentViewController?.view,
-              let window = content.window, let screen = window.screen else {
-            throw TestError.failed("reopened popover has no native content window or screen")
+        try await openPopover(controller, item: item, popover: popover, stage: "reopen after hiding status item")
+        try await assertPopoverFits(popover, verticalSliders: 5, stage: "reopen after hiding status item")
+    }
+
+    await SessionTests.test("production popover resizes after late EQ readings, format changes and reconnect") {
+        try SessionTests.check(!NSScreen.screens.isEmpty, "native popover test requires a macOS display")
+        let session = HeadphonesSession()
+        let model = MainViewModel(session: session)
+        session.onStateChanged?(.ready)
+        // Open before the first EQ reply, as a user can while the handshake completes.
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let popover = NSPopover()
+        let controller = MenuBarController(viewModel: model, statusItem: item, popover: popover)
+        popover.behavior = .applicationDefined
+        defer {
+            popover.performClose(nil)
+            NSStatusBar.system.removeStatusItem(item)
+            withExtendedLifetime(controller) {}
         }
-        content.layoutSubtreeIfNeeded()
-        try SessionTests.check(content.frame.width >= content.fittingSize.width
-            && content.frame.height >= content.fittingSize.height,
-            "reopened native popover clips the flyout's fitting size")
-        try SessionTests.check(screen.frame.contains(window.frame),
-            "reopened popover is outside its native screen")
+
+        try await openPopover(controller, item: item, popover: popover, stage: "open before EQ reply")
+        let initialHeight = try await assertPopoverFits(popover, verticalSliders: 0, stage: "open before EQ reply")
+
+        session.onDeviceEvent?(.eq(preset: .custom1, clearBass: 2, bands: [1, 2, 3, 4, 5]))
+        let sixBandHeight = try await assertPopoverFits(popover, verticalSliders: 5, stage: "late six-band reply")
+        try SessionTests.check(sixBandHeight > initialHeight,
+            "late six-band reply did not grow the native content height: initial=\(initialHeight), six=\(sixBandHeight)")
+
+        session.onDeviceEvent?(.eq(preset: .custom2, clearBass: 0, bands: Array(repeating: 1, count: 10)))
+        let tenBandHeight = try await assertPopoverFits(popover, verticalSliders: 10, stage: "six to ten bands")
+        try SessionTests.check(tenBandHeight < sixBandHeight,
+            "ten-band format did not remove the bass row's native height: six=\(sixBandHeight), ten=\(tenBandHeight)")
+
+        session.onDeviceEvent?(.eqStatus(available: false))
+        let resetHeight = try await assertPopoverFits(popover, verticalSliders: 0, stage: "EQ availability reset")
+        try SessionTests.check(resetHeight < tenBandHeight,
+            "EQ reset left an oversized native content frame: reset=\(resetHeight), ten=\(tenBandHeight)")
+
+        session.onStateChanged?(.disconnected)
+        try await assertPopoverFits(popover, verticalSliders: 0, stage: "disconnect while open")
+        session.onDeviceEvent?(.eqStatus(available: true))
+        session.onStateChanged?(.ready)
+        session.onDeviceEvent?(.eq(preset: .manual, clearBass: -4, bands: [-1, -2, -3, -4, -5]))
+        try await assertPopoverFits(popover, verticalSliders: 5, stage: "reconnected six-band reply")
+
+        // Repeated tray openings must use the current full layout without test-side frame repair.
+        for opening in 1...3 {
+            controller.togglePopover()
+            try await SessionTests.eventually { !popover.isShown }
+            try await openPopover(controller, item: item, popover: popover, stage: "repeated open \(opening)")
+            try await assertPopoverFits(popover, verticalSliders: 5, stage: "repeated open \(opening)")
+        }
     }
 
     await SessionTests.test("popover anchors distinguish menu-bar auto-hide from hidden or removed displays") {
@@ -90,11 +121,59 @@ private func popoverTestAnchorIsOnscreen(_ item: NSStatusItem) -> Bool {
 }
 
 @MainActor
-private func preparePopoverTestContent(_ popover: NSPopover) {
-    // Resolve SwiftUI's initial layout before presenting the injected native test popover.
-    let content = popover.contentViewController!.view
-    let size = content.fittingSize
-    content.setFrameSize(size)
-    popover.contentSize = size
-    content.layoutSubtreeIfNeeded()
+private func openPopover(_ controller: MenuBarController, item: NSStatusItem,
+                         popover: NSPopover, stage: String) async throws {
+    try await SessionTests.eventually { popoverTestAnchorIsOnscreen(item) }
+    controller.togglePopover()
+    do {
+        try await SessionTests.eventually { popover.isShown }
+    } catch {
+        throw TestError.failed("native popover did not open at \(stage): \(popoverGeometry(popover)), anchor=\(String(describing: item.button?.window?.frame))")
+    }
+}
+
+@MainActor
+@discardableResult
+private func assertPopoverFits(_ popover: NSPopover, verticalSliders: Int, stage: String) async throws -> CGFloat {
+    do {
+        try await SessionTests.eventually(timeout: 1.5) {
+            guard popover.isShown, let content = popover.contentViewController?.view,
+                  let window = content.window, let screen = window.screen else { return false }
+            // Flush pending native layout; never set the frame or repair contentSize here.
+            content.layoutSubtreeIfNeeded()
+            let controls = popoverVisibleControls(in: content)
+            let verticalCount = controls.compactMap { $0 as? NSSlider }.filter(\.isVertical).count
+            let ideal = content.fittingSize
+            let tolerance: CGFloat = 2 // native coordinates may round to a backing pixel
+            guard verticalCount == verticalSliders, ideal.width > 0, ideal.height > 0,
+                  content.bounds.width + tolerance >= ideal.width,
+                  abs(content.bounds.height - ideal.height) <= tolerance else { return false }
+            let paddedBounds = content.bounds.insetBy(dx: -tolerance, dy: -tolerance)
+            guard controls.allSatisfy({ paddedBounds.contains($0.convert($0.bounds, to: content)) }) else {
+                return false // catches controls centered outside an undersized hosting frame
+            }
+            let screenBounds = screen.frame.insetBy(dx: -tolerance, dy: -tolerance)
+            return screenBounds.contains(window.frame)
+        }
+    } catch {
+        throw TestError.failed("cropped or stale native popover at \(stage); expected \(verticalSliders) vertical sliders: \(popoverGeometry(popover))")
+    }
+    return popover.contentViewController!.view.bounds.height
+}
+
+@MainActor
+private func popoverVisibleControls(in view: NSView) -> [NSControl] {
+    guard !view.isHiddenOrHasHiddenAncestor else { return [] }
+    var controls: [NSControl] = []
+    if let control = view as? NSControl { controls.append(control) }
+    return controls + view.subviews.flatMap { popoverVisibleControls(in: $0) }
+}
+
+@MainActor
+private func popoverGeometry(_ popover: NSPopover) -> String {
+    guard let content = popover.contentViewController?.view else { return "content view missing" }
+    let controls = popoverVisibleControls(in: content)
+    let outside = controls.filter { !content.bounds.insetBy(dx: -2, dy: -2).contains($0.convert($0.bounds, to: content)) }
+        .map { "\(type(of: $0))=\($0.convert($0.bounds, to: content))" }
+    return "shown=\(popover.isShown), bounds=\(content.bounds), fitting=\(content.fittingSize), contentSize=\(popover.contentSize), window=\(String(describing: content.window?.frame)), screen=\(String(describing: content.window?.screen?.frame)), verticalSliders=\(controls.compactMap { $0 as? NSSlider }.filter(\.isVertical).count), outsideControls=\(outside)"
 }
