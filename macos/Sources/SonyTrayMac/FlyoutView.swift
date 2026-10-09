@@ -6,6 +6,7 @@ import SwiftUI
 /// own material, instead of the hardcoded dark card the WPF flyout draws.
 struct FlyoutView: View {
     @ObservedObject var viewModel: MainViewModel
+    var maximumHeight: CGFloat? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {

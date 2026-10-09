@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import SonyProtocolKit
+import SwiftUI
 
 // MenuBarController's log-reveal menu is compiled but never invoked by these tests.
 extension Log { static var path: String { "/dev/null" } }
@@ -95,8 +96,14 @@ func runPopoverTests() async {
     await SessionTests.test("native flyout has an accessible Hide controls button that closes only the popover") {
         let session = HeadphonesSession()
         let model = MainViewModel(session: session)
+        session.onCapabilities?(DeviceCapabilities(ncVariant: .dualSeamless, hasNcMode: true,
+            batteries: [.leftRight, .cradle], hasEq: true, hasPowerOff: true,
+            deviceName: "Sony headset with a long device name"))
         session.onStateChanged?(.ready)
         session.onDeviceEvent?(.eq(preset: .custom1, clearBass: 2, bands: [1, 2, 3, 4, 5]))
+        session.onDeviceEvent?(.leftRightBattery(leftLevel: 100, leftCharging: .charging,
+            rightLevel: 100, rightCharging: .charging))
+        session.onDeviceEvent?(.cradleBattery(level: 100, charging: .charging))
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let popover = NSPopover()
         let controller = MenuBarController(viewModel: model, statusItem: item, popover: popover)
@@ -152,6 +159,44 @@ func runPopoverTests() async {
         }
         try SessionTests.check(model.isConnected && model.statusText == "Connected",
             "Escape changed the headphone session state")
+    }
+
+    await SessionTests.test("short native flyout keeps its Hide control outside a scrolling body") {
+        let session = HeadphonesSession()
+        let model = MainViewModel(session: session)
+        session.onCapabilities?(DeviceCapabilities(ncVariant: .dualSeamless, hasNcMode: true,
+            batteries: [.leftRight, .cradle], hasEq: true, hasPowerOff: true,
+            deviceName: "Sony headset with a long device name"))
+        session.onStateChanged?(.ready)
+        session.onDeviceEvent?(.eq(preset: .custom1, clearBass: 2, bands: [1, 2, 3, 4, 5]))
+        session.onDeviceEvent?(.leftRightBattery(leftLevel: 100, leftCharging: .charging,
+            rightLevel: 100, rightCharging: .charging))
+        session.onDeviceEvent?(.cradleBattery(level: 100, charging: .charging))
+        // This fixture proposes the same short viewport the controller must request on a
+        // small work area. It never repairs the popover opening tests' native geometry.
+        let host = NSHostingView(rootView: FlyoutView(viewModel: model, maximumHeight: 180))
+        host.frame = NSRect(x: 0, y: 0, width: 320, height: 180)
+        host.layoutSubtreeIfNeeded()
+        try SessionTests.check(host.fittingSize.height <= 182,
+            "short viewport still requires an oversized native frame: fitting=\(host.fittingSize)")
+        guard let hideButton = popoverVisibleControls(in: host).compactMap({ $0 as? NSButton })
+            .first(where: { $0.accessibilityLabel() == "Hide controls" }),
+              let scroll = popoverScrollViews(in: host).first else {
+            throw TestError.failed("short flyout lacks a pinned Hide control or native scrolling body")
+        }
+        try SessionTests.check(!hideButton.isDescendant(of: scroll), "Hide control scrolls out with the body")
+        let headerBounds = hideButton.convert(hideButton.bounds, to: host)
+        try SessionTests.check(host.bounds.insetBy(dx: -2, dy: -2).contains(headerBounds),
+            "short flyout clips its Hide control")
+        guard let document = scroll.documentView else { throw TestError.failed("scrolling body has no content") }
+        let clip = scroll.contentView
+        try SessionTests.check(document.bounds.height > clip.bounds.height,
+            "short flyout's controls were removed instead of made scrollable")
+        clip.scroll(to: NSPoint(x: 0, y: max(0, document.bounds.height - clip.bounds.height)))
+        scroll.reflectScrolledClipView(clip)
+        host.layoutSubtreeIfNeeded()
+        try SessionTests.check(hideButton.convert(hideButton.bounds, to: host) == headerBounds,
+            "scrolling the body moved the pinned Hide control")
     }
 
     await SessionTests.test("popover anchors distinguish menu-bar auto-hide from hidden or removed displays") {
@@ -238,4 +283,11 @@ private func popoverGeometry(_ popover: NSPopover) -> String {
     let outside = controls.filter { !content.bounds.insetBy(dx: -2, dy: -2).contains($0.convert($0.bounds, to: content)) }
         .map { "\(type(of: $0))=\($0.convert($0.bounds, to: content))" }
     return "shown=\(popover.isShown), bounds=\(content.bounds), fitting=\(content.fittingSize), contentSize=\(popover.contentSize), window=\(String(describing: content.window?.frame)), screen=\(String(describing: content.window?.screen?.frame)), verticalSliders=\(controls.compactMap { $0 as? NSSlider }.filter(\.isVertical).count), outsideControls=\(outside)"
+}
+
+@MainActor
+private func popoverScrollViews(in view: NSView) -> [NSScrollView] {
+    var scrollViews: [NSScrollView] = []
+    if let scroll = view as? NSScrollView { scrollViews.append(scroll) }
+    return scrollViews + view.subviews.flatMap { popoverScrollViews(in: $0) }
 }
