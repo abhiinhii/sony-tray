@@ -181,12 +181,22 @@ func runPopoverTests() async {
         let host = NSHostingView(rootView: FlyoutView(viewModel: model, maximumHeight: 180))
         host.frame = NSRect(x: 0, y: 0, width: 320, height: 180)
         host.layoutSubtreeIfNeeded()
+        print("SHORT_LAYOUT_INITIAL: \(shortFlyoutGeometry(host))")
+        do {
+            try await SessionTests.eventually(timeout: 1.5) {
+                host.layoutSubtreeIfNeeded()
+                return shortFlyoutScrollableBody(in: host) != nil
+            }
+        } catch {
+            throw TestError.failed("short flyout did not retain five frequencies in a scrollable native body: \(shortFlyoutGeometry(host))")
+        }
+        print("SHORT_LAYOUT_SETTLED: \(shortFlyoutGeometry(host))")
         try SessionTests.check(host.fittingSize.height <= 182,
             "short viewport still requires an oversized native frame: fitting=\(host.fittingSize)")
         guard let hideButton = popoverVisibleControls(in: host).compactMap({ $0 as? NSButton })
             .first(where: { $0.accessibilityLabel() == "Hide controls" }),
-              let scroll = popoverScrollViews(in: host).first else {
-            throw TestError.failed("short flyout lacks a pinned Hide control or native scrolling body")
+              let scroll = shortFlyoutScrollableBody(in: host) else {
+            throw TestError.failed("short flyout lacks a pinned Hide control or native scrolling body: \(shortFlyoutGeometry(host))")
         }
         try SessionTests.check(!hideButton.isDescendant(of: scroll), "Hide control scrolls out with the body")
         let headerBounds = hideButton.convert(hideButton.bounds, to: host)
@@ -195,7 +205,7 @@ func runPopoverTests() async {
         guard let document = scroll.documentView else { throw TestError.failed("scrolling body has no content") }
         let clip = scroll.contentView
         try SessionTests.check(document.bounds.height > clip.bounds.height,
-            "short flyout's controls were removed instead of made scrollable")
+            "short flyout's controls were removed instead of made scrollable: \(shortFlyoutGeometry(host))")
         clip.scroll(to: NSPoint(x: 0, y: max(0, document.bounds.height - clip.bounds.height)))
         scroll.reflectScrolledClipView(clip)
         host.layoutSubtreeIfNeeded()
@@ -294,4 +304,22 @@ private func popoverScrollViews(in view: NSView) -> [NSScrollView] {
     var scrollViews: [NSScrollView] = []
     if let scroll = view as? NSScrollView { scrollViews.append(scroll) }
     return scrollViews + view.subviews.flatMap { popoverScrollViews(in: $0) }
+}
+@MainActor
+private func shortFlyoutScrollableBody(in host: NSView) -> NSScrollView? {
+    popoverScrollViews(in: host).first { scroll in
+        guard !scroll.isHiddenOrHasHiddenAncestor, let document = scroll.documentView else { return false }
+        let frequencies = popoverVisibleControls(in: document).compactMap { $0 as? NSSlider }.filter(\.isVertical)
+        return frequencies.count == 5 && document.bounds.height > scroll.contentView.bounds.height + 1
+    }
+}
+
+@MainActor
+private func shortFlyoutGeometry(_ host: NSView) -> String {
+    let scrolls = popoverScrollViews(in: host).enumerated().map { index, scroll in
+        let document = scroll.documentView
+        let sliders = document.map { popoverVisibleControls(in: $0).compactMap { $0 as? NSSlider } } ?? []
+        return "scroll[\(index)] type=\(type(of: scroll)), hidden=\(scroll.isHiddenOrHasHiddenAncestor), bounds=\(scroll.bounds), visible=\(scroll.visibleRect), clip=\(scroll.contentView.bounds), documentType=\(String(describing: document.map { type(of: $0) })), documentBounds=\(String(describing: document?.bounds)), documentFrame=\(String(describing: document?.frame)), documentFitting=\(String(describing: document?.fittingSize)), sliders=\(sliders.count), frequencies=\(sliders.filter(\.isVertical).count)"
+    }
+    return "hostBounds=\(host.bounds), hostFrame=\(host.frame), hostFitting=\(host.fittingSize), window=\(String(describing: host.window?.frame)), allScrollViews=\(scrolls)"
 }
