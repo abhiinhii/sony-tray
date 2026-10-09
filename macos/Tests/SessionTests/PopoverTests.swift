@@ -176,10 +176,20 @@ func runPopoverTests() async {
         session.onDeviceEvent?(.leftRightBattery(leftLevel: 100, leftCharging: .charging,
             rightLevel: 100, rightCharging: .charging))
         session.onDeviceEvent?(.cradleBattery(level: 100, charging: .charging))
-        // This fixture proposes the same short viewport the controller must request on a
-        // small work area. It never repairs the popover opening tests' native geometry.
+        // SwiftUI's native scroll document needs an attached window to complete layout.
+        // The 180-point content area simulates a short work area without repairing any
+        // popover geometry or sizing the scrolling document ourselves.
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+            throw TestError.failed("short native flyout test requires a macOS display")
+        }
         let host = NSHostingView(rootView: FlyoutView(viewModel: model, maximumHeight: 180))
-        host.frame = NSRect(x: 0, y: 0, width: 320, height: 180)
+        let window = NSWindow(contentRect: NSRect(x: screen.visibleFrame.minX + 20,
+            y: screen.visibleFrame.minY + 20, width: 320, height: 180),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.orderOut(nil); window.close() }
         host.layoutSubtreeIfNeeded()
         print("SHORT_LAYOUT_INITIAL: \(shortFlyoutGeometry(host))")
         do {
@@ -206,10 +216,24 @@ func runPopoverTests() async {
         let clip = scroll.contentView
         try SessionTests.check(document.bounds.height > clip.bounds.height,
             "short flyout's controls were removed instead of made scrollable: \(shortFlyoutGeometry(host))")
+        guard let bass = popoverVisibleControls(in: document).compactMap({ $0 as? NSSlider })
+            .first(where: { !$0.isVertical && $0.isEnabled }) else {
+            throw TestError.failed("scrolling body has no enabled CLEAR BASS control")
+        }
+        let bassBefore = bass.convert(bass.bounds, to: clip)
+        try SessionTests.check(!clip.bounds.insetBy(dx: -2, dy: -2).contains(bassBefore),
+            "short fixture did not place CLEAR BASS below its viewport: bass=\(bassBefore), clip=\(clip.bounds)")
+        let headerScreenBounds = window.convertToScreen(hideButton.convert(hideButton.bounds, to: nil))
         clip.scroll(to: NSPoint(x: 0, y: max(0, document.bounds.height - clip.bounds.height)))
         scroll.reflectScrolledClipView(clip)
-        host.layoutSubtreeIfNeeded()
-        try SessionTests.check(hideButton.convert(hideButton.bounds, to: host) == headerBounds,
+        try await SessionTests.eventually {
+            host.layoutSubtreeIfNeeded()
+            return clip.bounds.insetBy(dx: -2, dy: -2).contains(bass.convert(bass.bounds, to: clip))
+                && !bass.visibleRect.isEmpty
+        }
+        print("SHORT_LAYOUT_SCROLLED: \(shortFlyoutGeometry(host)), bassBefore=\(bassBefore), bassAfter=\(bass.convert(bass.bounds, to: clip)), headerScreen=\(headerScreenBounds)")
+        try SessionTests.check(hideButton.convert(hideButton.bounds, to: host) == headerBounds
+            && window.convertToScreen(hideButton.convert(hideButton.bounds, to: nil)) == headerScreenBounds,
             "scrolling the body moved the pinned Hide control")
     }
 
