@@ -245,11 +245,23 @@ func runPopoverTests() async {
         let clip = scroll.contentView
         try SessionTests.check(document.bounds.height > clip.bounds.height,
             "short flyout's controls were removed instead of made scrollable: \(shortFlyoutGeometry(host))")
-        guard let bass = popoverVisibleControls(in: document).compactMap({ $0 as? NSSlider })
-            .first(where: { !$0.isVertical && $0.isEnabled }) else {
-            throw TestError.failed("scrolling body has no enabled CLEAR BASS control")
+        // CLEAR BASS is the body's last control. Where SwiftUI draws its Slider without an AppKit
+        // view (macOS 27), the end of the scrolling document stands in for it.
+        let bass: NSSlider?
+        if let horizontal = appKitHorizontalSliders(in: document) {
+            guard let enabled = horizontal.first(where: \.isEnabled) else {
+                throw TestError.failed("scrolling body has no enabled CLEAR BASS control")
+            }
+            bass = enabled
+        } else {
+            bass = nil
         }
-        let bassBefore = bass.convert(bass.bounds, to: clip)
+        let documentEnd = NSRect(x: document.bounds.minX,
+            y: document.isFlipped ? document.bounds.maxY - 1 : document.bounds.minY, width: 1, height: 1)
+        func bassFrame() -> NSRect {
+            bass.map { $0.convert($0.bounds, to: clip) } ?? document.convert(documentEnd, to: clip)
+        }
+        let bassBefore = bassFrame()
         try SessionTests.check(!clip.bounds.insetBy(dx: -2, dy: -2).contains(bassBefore),
             "short fixture did not place CLEAR BASS below its viewport: bass=\(bassBefore), clip=\(clip.bounds)")
         let headerScreenBounds = window.convertToScreen(hideButton.convert(hideButton.bounds, to: nil))
@@ -257,10 +269,10 @@ func runPopoverTests() async {
         scroll.reflectScrolledClipView(clip)
         try await SessionTests.eventually {
             host.layoutSubtreeIfNeeded()
-            return clip.bounds.insetBy(dx: -2, dy: -2).contains(bass.convert(bass.bounds, to: clip))
-                && !bass.visibleRect.isEmpty
+            return clip.bounds.insetBy(dx: -2, dy: -2).contains(bassFrame())
+                && bass?.visibleRect.isEmpty != true
         }
-        print("SHORT_LAYOUT_SCROLLED: \(shortFlyoutGeometry(host)), bassBefore=\(bassBefore), bassAfter=\(bass.convert(bass.bounds, to: clip)), headerScreen=\(headerScreenBounds)")
+        print("SHORT_LAYOUT_SCROLLED: \(shortFlyoutGeometry(host)), bassBefore=\(bassBefore), bassAfter=\(bassFrame()), headerScreen=\(headerScreenBounds)")
         try SessionTests.check(hideButton.convert(hideButton.bounds, to: host) == headerBounds
             && window.convertToScreen(hideButton.convert(hideButton.bounds, to: nil)) == headerScreenBounds,
             "scrolling the body moved the pinned Hide control")

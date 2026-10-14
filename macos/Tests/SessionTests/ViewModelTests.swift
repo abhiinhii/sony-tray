@@ -41,14 +41,11 @@ func runViewModelTests() async {
         let host = NSHostingView(rootView: FlyoutView(viewModel: model))
         host.frame = NSRect(x: 0, y: 0, width: FlyoutView.width, height: 500)
         host.layoutSubtreeIfNeeded()
-        let sliders = eqTestSliders(in: host)
-        let frequencySliders = sliders.filter { $0.isVertical }
-        // SwiftUI normalizes its AppKit-backed horizontal slider to 0...1. Ambient is disabled
-        // for the fixture's selected NC mode, leaving CLEAR BASS as the enabled horizontal one.
-        let bass = sliders.filter { !$0.isVertical && $0.isEnabled }
+        let frequencySliders = eqTestSliders(in: host).filter { $0.isVertical }
         try SessionTests.check(frequencySliders.count == 5,
             "CLEAR BASS is still a sixth vertical frequency slider")
-        try SessionTests.check(bass.count == 1 && abs(bass[0].doubleValue - 0.6) < 0.0001,
+        try SessionTests.check(enabledHorizontalSlider(in: host, shows: 0.6)
+                ?? (model.clearBass?.value == 2 && model.eqBandsEditable),
             "horizontal CLEAR BASS control is missing, disabled, or has the wrong value")
         try SessionTests.check(frequencySliders.map(\.intValue).sorted() == [1, 2, 3, 4, 5],
             "separating bass dropped or changed a frequency value")
@@ -56,7 +53,7 @@ func runViewModelTests() async {
         try await SessionTests.eventually {
             host.layoutSubtreeIfNeeded()
             let updated = eqTestSliders(in: host)
-            return updated.filter(\.isVertical).count == 10
+            return updated.filter(\.isVertical).count == 10 && model.clearBass == nil
                 && !updated.contains { !$0.isVertical && $0.isEnabled }
         }
         session.onStateChanged?(.disconnected)
@@ -68,15 +65,19 @@ func runViewModelTests() async {
         session.onDeviceEvent?(.eq(preset: .manual, clearBass: -5, bands: [-1, -2, -3, -4, -5]))
         try await SessionTests.eventually {
             host.layoutSubtreeIfNeeded()
-            let updated = eqTestSliders(in: host)
-            return updated.filter(\.isVertical).count == 5
-                && updated.contains { !$0.isVertical && $0.isEnabled && abs($0.doubleValue - 0.25) < 0.0001 }
+            return eqTestSliders(in: host).filter(\.isVertical).count == 5
+                && enabledHorizontalSlider(in: host, shows: 0.25)
+                    ?? (model.clearBass?.value == -5 && model.eqBandsEditable)
         }
-        guard let currentBass = eqTestSliders(in: host).first(where: { !$0.isVertical && $0.isEnabled }) else {
-            throw TestError.failed("reconnected native bass slider missing")
+        if let horizontal = appKitHorizontalSliders(in: host) {
+            guard let currentBass = horizontal.first(where: \.isEnabled) else {
+                throw TestError.failed("reconnected native bass slider missing")
+            }
+            currentBass.doubleValue = 1 // upper end of SwiftUI's normalized native track
+            currentBass.sendAction(currentBass.action, to: currentBass.target)
+        } else if let bass = model.clearBass {
+            FlyoutView(viewModel: model).bandValueBinding(for: bass).wrappedValue = 10
         }
-        currentBass.doubleValue = 1 // upper end of SwiftUI's normalized native track
-        currentBass.sendAction(currentBass.action, to: currentBass.target)
         try SessionTests.check(model.clearBass?.value == 10
             && model.frequencyBands.map(\.value) == [-1, -2, -3, -4, -5],
             "native horizontal control action failed to update bass alone after reconnect")
@@ -294,4 +295,32 @@ func runViewModelTests() async {
 private func eqTestSliders(in view: NSView) -> [NSSlider] {
     if let slider = view as? NSSlider { return [slider] }
     return view.subviews.flatMap { eqTestSliders(in: $0) }
+}
+
+/// SwiftUI built `Slider` on an AppKit `NSSlider` through macOS 26. macOS 27 draws it without a
+/// view, and in-process accessibility has no element for it either. A bare Slider shows which,
+/// so a slider missing from the flyout itself still fails where it could be inspected.
+@MainActor
+private let swiftUISliderIsAppKitBacked: Bool = {
+    let probe = NSHostingView(rootView: Slider(value: .constant(0.5)))
+    probe.frame = NSRect(x: 0, y: 0, width: 200, height: 40)
+    probe.layoutSubtreeIfNeeded()
+    return !eqTestSliders(in: probe).isEmpty
+}()
+
+/// The flyout's horizontal sliders, or nil where SwiftUI gives them no AppKit view; callers then
+/// check the binding the flyout hands each Slider instead.
+@MainActor
+func appKitHorizontalSliders(in view: NSView) -> [NSSlider]? {
+    swiftUISliderIsAppKitBacked ? eqTestSliders(in: view).filter { !$0.isVertical } : nil
+}
+
+/// Whether exactly one horizontal slider is enabled and shows `normalized` (SwiftUI maps its
+/// AppKit-backed track to 0...1), or nil where there is no AppKit view to inspect.
+@MainActor
+private func enabledHorizontalSlider(in view: NSView, shows normalized: Double) -> Bool? {
+    appKitHorizontalSliders(in: view).map { sliders in
+        let enabled = sliders.filter(\.isEnabled)
+        return enabled.count == 1 && abs(enabled[0].doubleValue - normalized) < 0.0001
+    }
 }
