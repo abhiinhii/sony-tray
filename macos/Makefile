@@ -24,6 +24,10 @@ SESSION_TEST_SRC := $(wildcard Tests/SessionTests/*.swift) \
 # Empty on a healthy toolchain; see scripts/swift-compat-flags.sh.
 COMPAT := $(shell sh scripts/swift-compat-flags.sh $(BUILD))
 
+# The sources use Swift 6 syntax (e.g. RFCOMMClient's @preconcurrency conformance), so the CLT or
+# Xcode must be 16 or later. An older compiler would otherwise stop at that line with an opaque error.
+MIN_SWIFT := 6
+
 ifeq ($(CONFIG),release)
 SWIFTFLAGS := -O
 else
@@ -41,13 +45,25 @@ else
 TARGETS := $(ARCH)-apple-macos$(DEPLOY)
 endif
 
-.PHONY: all test app run probe snapshot install uninstall dist verify-portable verify-icon regenerate-icon clean
+.PHONY: all test app run probe snapshot install uninstall dist verify-portable verify-icon regenerate-icon clean check-toolchain
 
 all: app
 
+# Order-only prerequisite of every compile, so it runs first without forcing a rebuild.
+check-toolchain:
+	@found=$$($(SWIFTC) --version 2>&1 | head -n 1); \
+	major=$$(printf '%s\n' "$$found" | sed -nE 's/.*Swift version ([0-9]+)\..*/\1/p'); \
+	if [ -z "$$major" ] || [ "$$major" -lt $(MIN_SWIFT) ]; then \
+		echo "error: building Sony Tray needs Swift $(MIN_SWIFT) or later (Xcode or Command Line Tools 16+)." >&2; \
+		echo "  $(SWIFTC) reports: $$found" >&2; \
+		echo "  Update with Software Update or \`xcode-select --install\`, or use the prebuilt app:" >&2; \
+		echo "  https://github.com/abhiinhii/sony-tray/releases/latest" >&2; \
+		exit 1; \
+	fi
+
 # --- protocol core + tests ---------------------------------------------------------------
 
-$(BUILD)/lib/libSonyProtocolKit.a: $(KIT_SRC)
+$(BUILD)/lib/libSonyProtocolKit.a: $(KIT_SRC) | check-toolchain
 	@mkdir -p $(BUILD)/lib
 	@$(SWIFTC) $(SWIFTFLAGS) -target $(ARCH)-apple-macos$(DEPLOY) \
 		-module-name SonyProtocolKit \
@@ -84,7 +100,7 @@ verify-icon: $(APP)
 
 # Per slice: build SonyProtocolKit as its own module, then the app against it. Keeping the module
 # boundary means the sources compile identically here and under SwiftPM/Xcode.
-$(APP): $(KIT_SRC) $(APP_SRC) Resources/Info.plist Resources/AppIcon.icns
+$(APP): $(KIT_SRC) $(APP_SRC) Resources/Info.plist Resources/AppIcon.icns | check-toolchain
 	@rm -rf $(APP)
 	@mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	@for t in $(TARGETS); do \

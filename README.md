@@ -115,10 +115,13 @@ and a separate **CLEAR BASS** control (−10…+10). Choose **Manual**, **Custom
 CLEAR BASS. Band editing stays disabled until the device supplies a supported EQ
 layout; a preset-only response does not establish that layout.
 
-macOS:
+macOS — building needs Xcode or the Command Line Tools 16 or later (macOS 14.5+); the app it
+builds still runs on macOS 13:
 
 ```bash
-cd macos && make test && make app
+cd macos
+make install   # builds the universal app and copies it to /Applications
+make test      # optional: protocol + session/UI regression suites (needs a logged-in desktop)
 ```
 
 ## 🩺 Diagnostics
