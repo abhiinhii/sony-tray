@@ -32,8 +32,9 @@ unnotarized apps.)
 
 ### Option 2 — build from source
 
-Needs the Xcode **Command Line Tools** — Apple's own free package, not a third-party dependency.
-Full Xcode is *not* required.
+Needs the Xcode **Command Line Tools 16 or later** (Swift 6, macOS 14.5+) — Apple's own free
+package, not a third-party dependency. Full Xcode is *not* required. With older tools, `make`
+stops and says how to update; on macOS 13 or early 14, use Option 1 instead.
 
 ```bash
 xcode-select --install          # skip if you already have them
@@ -212,6 +213,12 @@ channel, so the transport, session, and UI are all `@MainActor` and the channel 
 from the main thread.
 
 ## Toolchain notes
+
+**Building needs Swift 6** — Xcode or the Command Line Tools 16 or later. The app still deploys
+to macOS 13, but the sources use Swift 6 syntax such as `@preconcurrency` conformances, which
+Xcode 15's Swift 5.10 rejects. `make` checks `swiftc --version` before compiling and explains how
+to update instead of stopping at the first such line. CI builds with Xcode 16.0, the Command Line
+Tools alone, and the newest macOS.
 
 **`Package.swift` is provided for Xcode/SwiftPM users, but `make` is the verified path.** Two
 defects in a Command-Line-Tools-only install make SwiftPM unusable, and the Makefile exists to

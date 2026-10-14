@@ -35,6 +35,43 @@ jobs:
       - name: All macOS tests
         run: make -C macos test
       - name: Universal macOS Release build
-        run: make -C macos app verify-portable
+        run: make -C macos dist
       - name: Verify bundle signature
         run: codesign --verify --deep --strict macos/build/SonyTray.app
+      - name: Upload release zip
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: SonyTray-macos-universal
+          path: macos/build/SonyTray-macos-universal.zip
+          if-no-files-found: error
+
+  # Building from source has to work with the toolchains people actually install, not only the
+  # runner's default Xcode: the oldest supported one, the Command Line Tools alone (the README's
+  # path), and the newest macOS, whose SwiftUI changes have broken the flyout before (#12).
+  macos-toolchains:
+    name: macOS build (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Xcode 16.0, oldest supported
+            runner: macos-15
+            developer-dir: /Applications/Xcode_16.app
+          - name: Command Line Tools only
+            runner: macos-latest
+            developer-dir: /Library/Developer/CommandLineTools
+          - name: macOS 27, Xcode 27
+            runner: xcode-27
+            developer-dir: /Applications/Xcode_27.app
+    env:
+      DEVELOPER_DIR: ${{ matrix.developer-dir }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Toolchain
+        run: swiftc --version
+      - name: All macOS tests
+        run: make -C macos test
+      - name: Universal macOS Release build
+        run: make -C macos app verify-portable

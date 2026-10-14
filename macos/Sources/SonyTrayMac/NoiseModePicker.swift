@@ -8,18 +8,43 @@ struct NoiseModePicker: NSViewRepresentable {
     @Binding var selection: NcAmbMode
     let hasNoiseCancelling: Bool
 
-    private var choices: [(String, NcAmbMode)] {
+    /// The width at which all three segments show their labels in full. macOS 26 and later draw
+    /// wider segments, so the flyout sizes its column from this rather than squeezing them.
+    @MainActor static let fullWidth: CGFloat = {
+        let control = makeControl()
+        let labels = choices(hasNoiseCancelling: true).map(\.0)
+        control.segmentCount = labels.count
+        for (index, label) in labels.enumerated() {
+            control.setLabel(label, forSegment: index)
+        }
+        // Measure with each segment selected, in case a release draws the selected label heavier.
+        return labels.indices.map { index in
+            control.selectedSegment = index
+            return ceil(control.intrinsicContentSize.width)
+        }.max() ?? 0
+    }()
+
+    private static func choices(hasNoiseCancelling: Bool) -> [(String, NcAmbMode)] {
         (hasNoiseCancelling ? [("Noise Cancel", .noiseCancelling)] : [])
             + [("Ambient", .ambient), ("Off", .off)]
+    }
+
+    private var choices: [(String, NcAmbMode)] { Self.choices(hasNoiseCancelling: hasNoiseCancelling) }
+
+    @MainActor
+    private static func makeControl() -> NSSegmentedControl {
+        let control = NSSegmentedControl(labels: [], trackingMode: .selectOne, target: nil, action: nil)
+        control.segmentStyle = .rounded
+        control.segmentDistribution = .fillEqually
+        return control
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSSegmentedControl {
-        let control = NSSegmentedControl(labels: [], trackingMode: .selectOne,
-            target: context.coordinator, action: #selector(Coordinator.changed(_:)))
-        control.segmentStyle = .rounded
-        control.segmentDistribution = .fillEqually
+        let control = Self.makeControl()
+        control.target = context.coordinator
+        control.action = #selector(Coordinator.changed(_:))
         control.selectedSegmentBezelColor = .systemBlue
         control.setAccessibilityLabel("Noise control")
         return control
