@@ -165,6 +165,35 @@ func runPopoverTests() async {
             "Escape changed the headphone session state")
     }
 
+    await SessionTests.test("flyout column fits every noise mode and keeps rows inside its margins") {
+        let session = HeadphonesSession()
+        let model = MainViewModel(session: session)
+        session.onCapabilities?(DeviceCapabilities(ncVariant: .dualSeamless, hasNcMode: true,
+            batteries: [.leftRight, .cradle], hasEq: true, hasPowerOff: true,
+            deviceName: "Sony headset with a long device name"))
+        session.onStateChanged?(.ready)
+        session.onDeviceEvent?(.ncAmb(mode: .ambient, ambientLevel: 10, focusOnVoice: false))
+        session.onDeviceEvent?(.eq(preset: .custom1, clearBass: 2, bands: [1, 2, 3, 4, 5]))
+        let host = NSHostingView(rootView: FlyoutView(viewModel: model))
+        host.frame = NSRect(x: 0, y: 0, width: FlyoutView.width, height: 600)
+        host.layoutSubtreeIfNeeded()
+        let controls = popoverVisibleControls(in: host)
+        guard let modes = controls.compactMap({ $0 as? NSSegmentedControl }).first else {
+            throw TestError.failed("flyout has no noise mode control")
+        }
+        // Squeezing the segments truncates "Noise Cancel"; keeping their width without a wider
+        // column shifted every row left of its margin and the modes to the panel edge (#12).
+        try SessionTests.check(modes.bounds.width + 0.5 >= modes.intrinsicContentSize.width,
+            "noise modes squeezed below their natural width: \(modes.bounds.width) < \(modes.intrinsicContentSize.width)")
+        try SessionTests.check(NoiseModePicker.fullWidth + 0.5 >= modes.intrinsicContentSize.width,
+            "flyout was sized for narrower noise modes (\(NoiseModePicker.fullWidth)) than the control needs")
+        let column = host.bounds.insetBy(dx: 16 - 1, dy: -4)
+        let outside = controls.filter { !column.contains($0.convert($0.bounds, to: host)) }
+            .map { "\(type(of: $0))=\($0.convert($0.bounds, to: host))" }
+        try SessionTests.check(outside.isEmpty,
+            "controls outside the flyout's 16-point margins in \(host.bounds): \(outside)")
+    }
+
     await SessionTests.test("short native flyout keeps its Hide control outside a scrolling body") {
         let session = HeadphonesSession()
         let model = MainViewModel(session: session)
@@ -184,7 +213,7 @@ func runPopoverTests() async {
         }
         let host = NSHostingView(rootView: FlyoutView(viewModel: model, maximumHeight: 180))
         let window = NSWindow(contentRect: NSRect(x: screen.visibleFrame.minX + 20,
-            y: screen.visibleFrame.minY + 20, width: 320, height: 180),
+            y: screen.visibleFrame.minY + 20, width: FlyoutView.width, height: 180),
             styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host

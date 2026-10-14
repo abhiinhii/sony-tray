@@ -39,7 +39,7 @@ func runViewModelTests() async {
         session.onStateChanged?(.ready)
         session.onDeviceEvent?(.eq(preset: .custom1, clearBass: 2, bands: [1, 2, 3, 4, 5]))
         let host = NSHostingView(rootView: FlyoutView(viewModel: model))
-        host.frame = NSRect(x: 0, y: 0, width: 320, height: 500)
+        host.frame = NSRect(x: 0, y: 0, width: FlyoutView.width, height: 500)
         host.layoutSubtreeIfNeeded()
         let sliders = eqTestSliders(in: host)
         let frequencySliders = sliders.filter { $0.isVertical }

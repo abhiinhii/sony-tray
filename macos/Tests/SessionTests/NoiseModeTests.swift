@@ -16,7 +16,7 @@ func runNoiseModeTests() async {
         let model = MainViewModel(session: session)
         session.onStateChanged?(.ready)
         let host = NSHostingView(rootView: FlyoutView(viewModel: model))
-        host.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        host.frame = NSRect(x: 0, y: 0, width: FlyoutView.width, height: 480)
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             host.appearance = NSAppearance(named: appearance)
             host.layoutSubtreeIfNeeded()
@@ -40,7 +40,7 @@ func runNoiseModeTests() async {
         try await SessionTests.eventually { session.state == .ready }
         let transport = RFCOMMClient.instances[0]
         let host = NSHostingView(rootView: FlyoutView(viewModel: model))
-        host.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        host.frame = NSRect(x: 0, y: 0, width: FlyoutView.width, height: 480)
         host.layoutSubtreeIfNeeded()
         guard let control = noiseControls(in: host).first else {
             throw TestError.failed("noise selector missing")
@@ -75,7 +75,7 @@ func runNoiseModeTests() async {
         session.onStateChanged?(.ready)
         session.onDeviceEvent?(.ncAmb(mode: .ambient, ambientLevel: 12, focusOnVoice: false))
         let host = NSHostingView(rootView: FlyoutView(viewModel: model))
-        host.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        host.frame = NSRect(x: 0, y: 0, width: FlyoutView.width, height: 480)
         host.layoutSubtreeIfNeeded()
         guard let control = noiseControls(in: host).first else {
             throw TestError.failed("supported ambient selector missing")
