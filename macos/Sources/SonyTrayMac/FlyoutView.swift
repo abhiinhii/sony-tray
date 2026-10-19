@@ -28,13 +28,19 @@ struct FlyoutView: View {
             .fixedSize(horizontal: false, vertical: true)
 
             // The dismissal control stays reachable when a short work area needs scrolling.
+            // The scroller runs down the trailing margin: inside the column, always-visible
+            // (mouse) scroll bars squeezed it, and macOS 26 widened every row off-centre (#12).
             VStack(alignment: .leading, spacing: 14) {
                 header
+                    .padding([.top, .horizontal], Self.padding)
                 ScrollView(.vertical) {
-                    sections.frame(maxWidth: .infinity, alignment: .leading)
+                    sections
+                        .frame(width: Self.width - 2 * Self.padding, alignment: .leading)
+                        .padding(.leading, Self.padding)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .padding(.bottom, Self.padding)
             }
-            .padding(Self.padding)
         }
         .frame(width: Self.width)
         .frame(maxHeight: maximumHeight ?? .infinity)
