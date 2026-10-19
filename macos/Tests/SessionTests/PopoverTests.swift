@@ -183,13 +183,14 @@ func runPopoverTests() async {
         }
         // Squeezing the segments truncates "Noise Cancel"; keeping their width without a wider
         // column shifted every row left of its margin and the modes to the panel edge (#12).
-        try SessionTests.check(modes.bounds.width + 0.5 >= modes.intrinsicContentSize.width,
-            "noise modes squeezed below their natural width: \(modes.bounds.width) < \(modes.intrinsicContentSize.width)")
+        let modesWidth = modes.alignmentRect(forFrame: modes.frame).width
+        try SessionTests.check(modesWidth + 0.5 >= modes.intrinsicContentSize.width,
+            "noise modes squeezed below their natural width: \(modesWidth) < \(modes.intrinsicContentSize.width)")
         try SessionTests.check(NoiseModePicker.fullWidth + 0.5 >= modes.intrinsicContentSize.width,
             "flyout was sized for narrower noise modes (\(NoiseModePicker.fullWidth)) than the control needs")
         let column = host.bounds.insetBy(dx: 16 - 1, dy: -4)
-        let outside = controls.filter { !column.contains($0.convert($0.bounds, to: host)) }
-            .map { "\(type(of: $0))=\($0.convert($0.bounds, to: host))" }
+        let outside = controls.filter { !column.contains(popoverAlignmentRect(of: $0, in: host)) }
+            .map { "\(type(of: $0))=\(popoverAlignmentRect(of: $0, in: host)) frame=\($0.convert($0.bounds, to: host))" }
         try SessionTests.check(outside.isEmpty,
             "controls outside the flyout's 16-point margins in \(host.bounds): \(outside)")
     }
@@ -258,7 +259,7 @@ func runPopoverTests() async {
         }
         let documentEnd = NSRect(x: document.bounds.minX,
             y: document.isFlipped ? document.bounds.maxY - 1 : document.bounds.minY, width: 1, height: 1)
-        func bassFrame() -> NSRect {
+        @MainActor func bassFrame() -> NSRect {
             bass.map { $0.convert($0.bounds, to: clip) } ?? document.convert(documentEnd, to: clip)
         }
         let bassBefore = bassFrame()
@@ -353,6 +354,14 @@ private func popoverVisibleControls(in view: NSView) -> [NSControl] {
     var controls: [NSControl] = []
     if let control = view as? NSControl { controls.append(control) }
     return controls + view.subviews.flatMap { popoverVisibleControls(in: $0) }
+}
+
+/// Where a control's bezel sits in `view`. SwiftUI lays hosted controls out by alignment rect;
+/// through macOS 15 their frames add a few points of focus ring and shadow outside it.
+@MainActor
+private func popoverAlignmentRect(of control: NSView, in view: NSView) -> NSRect {
+    guard let parent = control.superview else { return control.convert(control.bounds, to: view) }
+    return parent.convert(control.alignmentRect(forFrame: control.frame), to: view)
 }
 
 @MainActor
