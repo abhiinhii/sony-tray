@@ -193,6 +193,13 @@ func runPopoverTests() async {
             .map { "\(type(of: $0))=\(popoverAlignmentRect(of: $0, in: host)) frame=\($0.convert($0.bounds, to: host))" }
         try SessionTests.check(outside.isEmpty,
             "controls outside the flyout's 16-point margins in \(host.bounds): \(outside)")
+        // The EQ preset menu ends on the right margin like the rows around it. From macOS 26 it is
+        // only as wide as its title, and centring it in its 140-point slot left it 7 points short.
+        if let presets = controls.compactMap({ $0 as? NSPopUpButton }).first {
+            let presetsRect = popoverAlignmentRect(of: presets, in: host)
+            try SessionTests.check(abs(presetsRect.maxX - (host.bounds.maxX - 16)) <= 1,
+                "EQ preset menu ends \(host.bounds.maxX - 16 - presetsRect.maxX) points from the right margin: \(presetsRect) in \(host.bounds)")
+        }
     }
 
     await SessionTests.test("short native flyout keeps its Hide control outside a scrolling body") {
