@@ -6,6 +6,12 @@ import SwiftUI
 /// colours throughout so it reads correctly in both light and dark mode against the popover's
 /// own material, instead of the hardcoded dark card the WPF flyout draws.
 struct FlyoutView: View {
+    private static let padding: CGFloat = 16
+
+    /// 320 points, or wider where the noise-mode labels need it. Squeezed into the old column,
+    /// macOS 26 and later kept their full width anyway and pushed every row off-centre (#12).
+    static var width: CGFloat { max(320, NoiseModePicker.fullWidth + 2 * padding) }
+
     @ObservedObject var viewModel: MainViewModel
     var maximumHeight: CGFloat? = nil
     var onHide: () -> Void = {}
@@ -18,7 +24,7 @@ struct FlyoutView: View {
                 header
                 sections
             }
-            .padding(16)
+            .padding(Self.padding)
             .fixedSize(horizontal: false, vertical: true)
 
             // The dismissal control stays reachable when a short work area needs scrolling.
@@ -28,9 +34,9 @@ struct FlyoutView: View {
                     sections.frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .padding(16)
+            .padding(Self.padding)
         }
-        .frame(width: 320)
+        .frame(width: Self.width)
         .frame(maxHeight: maximumHeight ?? .infinity)
         .onExitCommand(perform: onHide)
     }

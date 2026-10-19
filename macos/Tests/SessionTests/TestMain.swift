@@ -295,7 +295,7 @@ enum SessionTests {
             let model = MainViewModel(session: session)
             session.onDeviceEvent?(.eq(preset: .custom1, clearBass: 0, bands: [0, 0, 0, 0, 0]))
             let host = NSHostingView(rootView: FlyoutView(viewModel: model))
-            host.frame = NSRect(x: 0, y: 0, width: 320, height: 450)
+            host.frame = NSRect(x: 0, y: 0, width: FlyoutView.width, height: 450)
             host.layoutSubtreeIfNeeded()
             @MainActor func sliders(in view: NSView) -> [NSSlider] {
                 if let slider = view as? NSSlider { return [slider] }
