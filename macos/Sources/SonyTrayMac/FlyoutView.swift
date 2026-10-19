@@ -125,7 +125,9 @@ struct FlyoutView: View {
                     }
                 }
                 .labelsHidden()
-                .frame(width: 140)
+                // From macOS 26 the menu is only as wide as its title. Keep it on the right
+                // margin with the other rows rather than centred in its slot (#12).
+                .frame(width: 140, alignment: .trailing)
             }
 
             if !viewModel.frequencyBands.isEmpty {
