@@ -193,6 +193,13 @@ func runPopoverTests() async {
             .map { "\(type(of: $0))=\(popoverAlignmentRect(of: $0, in: host)) frame=\($0.convert($0.bounds, to: host))" }
         try SessionTests.check(outside.isEmpty,
             "controls outside the flyout's 16-point margins in \(host.bounds): \(outside)")
+        // The EQ preset menu ends on the right margin like the rows around it. From macOS 26 it is
+        // only as wide as its title, and centring it in its 140-point slot left it 7 points short.
+        if let presets = controls.compactMap({ $0 as? NSPopUpButton }).first {
+            let presetsRect = popoverAlignmentRect(of: presets, in: host)
+            try SessionTests.check(abs(presetsRect.maxX - (host.bounds.maxX - 16)) <= 1,
+                "EQ preset menu ends \(host.bounds.maxX - 16 - presetsRect.maxX) points from the right margin: \(presetsRect) in \(host.bounds)")
+        }
     }
 
     await SessionTests.test("short native flyout keeps its Hide control outside a scrolling body") {
@@ -277,6 +284,57 @@ func runPopoverTests() async {
         try SessionTests.check(hideButton.convert(hideButton.bounds, to: host) == headerBounds
             && window.convertToScreen(hideButton.convert(hideButton.bounds, to: nil)) == headerScreenBounds,
             "scrolling the body moved the pinned Hide control")
+    }
+
+    await SessionTests.test("short native flyout keeps its full column beside the scroller") {
+        let session = HeadphonesSession()
+        let model = MainViewModel(session: session)
+        session.onCapabilities?(DeviceCapabilities(ncVariant: .dualSeamless, hasNcMode: true,
+            batteries: [.leftRight, .cradle], hasEq: true, hasPowerOff: true,
+            deviceName: "Sony headset with a long device name"))
+        session.onStateChanged?(.ready)
+        session.onDeviceEvent?(.eq(preset: .custom1, clearBass: 2, bands: [1, 2, 3, 4, 5]))
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+            throw TestError.failed("short native flyout test requires a macOS display")
+        }
+        let host = NSHostingView(rootView: FlyoutView(viewModel: model, maximumHeight: 180))
+        let window = NSWindow(contentRect: NSRect(x: screen.visibleFrame.minX + 20,
+            y: screen.visibleFrame.minY + 20, width: FlyoutView.width, height: 180),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.orderOut(nil); window.close() }
+        do {
+            try await SessionTests.eventually(timeout: 1.5) {
+                host.layoutSubtreeIfNeeded()
+                return shortFlyoutScrollableBody(in: host) != nil
+            }
+        } catch {
+            throw TestError.failed("short flyout did not settle into a scrollable native body: \(shortFlyoutGeometry(host))")
+        }
+        let controls = popoverVisibleControls(in: host).filter { !($0 is NSScroller) }
+        guard let scroll = shortFlyoutScrollableBody(in: host),
+              let modes = controls.compactMap({ $0 as? NSSegmentedControl }).first else {
+            throw TestError.failed("short flyout has no scrolling body or noise mode control: \(shortFlyoutGeometry(host))")
+        }
+        // CI runners, like Macs with a mouse, show always-visible scroll bars. Inside the column one
+        // took its width, and from macOS 26 it pushed every row off-centre to 8-point margins (#12).
+        let column = host.bounds.insetBy(dx: 16 - 1, dy: 0)
+        let outside = controls.map { ($0, popoverAlignmentRect(of: $0, in: host)) }
+            .filter { $0.1.minX < column.minX || $0.1.maxX > column.maxX }
+            .map { "\(type(of: $0.0))=\($0.1)" }
+        try SessionTests.check(outside.isEmpty,
+            "short flyout moved controls outside its 16-point margins in \(host.bounds): \(outside)")
+        let modesRect = popoverAlignmentRect(of: modes, in: host)
+        try SessionTests.check(modesRect.width + 1 >= host.bounds.width - 2 * 16,
+            "short flyout narrowed its column: modes=\(modesRect) in \(host.bounds): \(shortFlyoutGeometry(host))")
+        if scroll.scrollerStyle == .legacy, let scroller = scroll.verticalScroller,
+           !scroller.isHiddenOrHasHiddenAncestor {
+            let scrollerRect = scroller.convert(scroller.bounds, to: host)
+            try SessionTests.check(scrollerRect.minX + 1 >= host.bounds.maxX - 16,
+                "short flyout's scroller covers the column instead of its margin: scroller=\(scrollerRect) in \(host.bounds)")
+        }
     }
 
     await SessionTests.test("popover anchors distinguish menu-bar auto-hide from hidden or removed displays") {
