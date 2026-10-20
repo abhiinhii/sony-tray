@@ -12,7 +12,7 @@
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=white)](#macos)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-<img src="docs/screenshot.png" width="300" alt="Sony Tray on Windows"/>&nbsp;&nbsp;<img src="docs/screenshot-macos.png" width="300" alt="Sony Tray on macOS"/>
+<img src="docs/screenshot.png" height="380" alt="Sony Tray on Windows"/>&nbsp;&nbsp;<img src="docs/screenshot-macos.png" height="380" alt="Sony Tray on macOS"/>
 
 </div>
 
