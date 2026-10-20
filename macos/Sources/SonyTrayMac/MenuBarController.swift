@@ -22,6 +22,9 @@ final class MenuBarController: NSObject {
 
         popover.behavior = .transient
         popover.animates = false
+        // Measure the noise modes before SwiftUI first lays out the flyout. Measured inside that
+        // layout, macOS 27 reports 0 points and the flyout stays too narrow for them (#12).
+        _ = NoiseModePicker.fullWidth
         let hosting = FlyoutHostingController(rootView: FlyoutView(viewModel: viewModel,
             maximumHeight: maximumContentHeight(), onHide: { [weak self] in self?.hidePopover() }))
         // The controller owns popover geometry. Hosting constraints must not grow an already
