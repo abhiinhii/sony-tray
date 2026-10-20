@@ -358,6 +358,49 @@ func runPopoverTests() async {
     }
 }
 
+/// In the app, the popover's first layout is also the first time anything measures the flyout. On
+/// macOS 27 an AppKit control measured inside that SwiftUI layout reports zero width, which left
+/// the flyout too narrow for its noise modes again (#12). `make test` runs this in a fresh process.
+@MainActor
+func runFirstPopoverLayoutTest() async {
+    await SessionTests.test("first popover layout leaves the noise modes their full width inside the margins") {
+        try SessionTests.check(!NSScreen.screens.isEmpty, "native popover test requires a macOS display")
+        let session = HeadphonesSession()
+        let model = MainViewModel(session: session)
+        session.onCapabilities?(DeviceCapabilities(ncVariant: .dualSeamless, hasNcMode: true,
+            batteries: [.single], hasEq: true, hasPowerOff: true, deviceName: "WH-1000XM5"))
+        session.onStateChanged?(.ready)
+        session.onDeviceEvent?(.eq(preset: .custom1, clearBass: 2, bands: [1, 2, 3, 4, 5]))
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let popover = NSPopover()
+        let controller = MenuBarController(viewModel: model, statusItem: item, popover: popover)
+        popover.behavior = .applicationDefined
+        defer {
+            popover.performClose(nil)
+            NSStatusBar.system.removeStatusItem(item)
+            withExtendedLifetime(controller) {}
+        }
+        try await openPopover(controller, item: item, popover: popover, stage: "first layout")
+        guard let content = popover.contentViewController?.view else {
+            throw TestError.failed("first-layout popover has no content")
+        }
+        var geometry = "noise modes missing"
+        do {
+            try await SessionTests.eventually(timeout: 1.5) {
+                content.layoutSubtreeIfNeeded()
+                guard let modes = popoverVisibleControls(in: content)
+                    .compactMap({ $0 as? NSSegmentedControl }).first else { return false }
+                let rect = popoverAlignmentRect(of: modes, in: content)
+                geometry = "modes=\(rect), natural width \(modes.intrinsicContentSize.width), content=\(content.bounds)"
+                return rect.width + 0.5 >= modes.intrinsicContentSize.width
+                    && rect.minX >= 16 - 1 && rect.maxX <= content.bounds.maxX - 16 + 1
+            }
+        } catch {
+            throw TestError.failed("first layout squeezed the noise modes or moved them off-centre: \(geometry)")
+        }
+    }
+}
+
 @MainActor
 private func popoverTestAnchorIsOnscreen(_ item: NSStatusItem) -> Bool {
     guard let button = item.button, !button.isHiddenOrHasHiddenAncestor, !button.visibleRect.isEmpty,

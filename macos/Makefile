@@ -86,6 +86,7 @@ $(BUILD)/SonySessionTests: $(BUILD)/lib/libSonyProtocolKit.a $(SESSION_TEST_SRC)
 test: $(BUILD)/SonyProtocolTests $(BUILD)/SonySessionTests
 	@$(BUILD)/SonyProtocolTests
 	@$(BUILD)/SonySessionTests
+	@$(BUILD)/SonySessionTests --first-layout
 	@sh scripts/verify-app-icon.sh Resources/Info.plist Resources
 
 # --- app bundle --------------------------------------------------------------------------
