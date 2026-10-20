@@ -10,7 +10,19 @@ struct NoiseModePicker: NSViewRepresentable {
 
     /// The width at which all three segments show their labels in full. macOS 26 and later draw
     /// wider segments, so the flyout sizes its column from this rather than squeezing them.
-    @MainActor static let fullWidth: CGFloat = {
+    /// Inside a SwiftUI body, macOS 27 measures the control as 0 points wide. MenuBarController
+    /// therefore measures before the flyout's first layout, and a 0 is never kept (#12).
+    @MainActor static var fullWidth: CGFloat {
+        if let measuredFullWidth { return measuredFullWidth }
+        let width = measureFullWidth()
+        if width > 0 { measuredFullWidth = width }
+        return width
+    }
+
+    @MainActor private static var measuredFullWidth: CGFloat?
+
+    @MainActor
+    private static func measureFullWidth() -> CGFloat {
         let control = makeControl()
         let labels = choices(hasNoiseCancelling: true).map(\.0)
         control.segmentCount = labels.count
@@ -22,7 +34,7 @@ struct NoiseModePicker: NSViewRepresentable {
             control.selectedSegment = index
             return ceil(control.intrinsicContentSize.width)
         }.max() ?? 0
-    }()
+    }
 
     private static func choices(hasNoiseCancelling: Bool) -> [(String, NcAmbMode)] {
         (hasNoiseCancelling ? [("Noise Cancel", .noiseCancelling)] : [])

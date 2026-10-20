@@ -38,8 +38,19 @@ enum SessionTests {
         app.setActivationPolicy(.accessory)
         // Native popovers and status items need AppKit's application event loop, not only
         // Swift concurrency's async-main executor. The tests still use only fake transport.
-        Task { @MainActor in await runTests() }
+        if CommandLine.arguments.contains("--first-layout") {
+            Task { @MainActor in await runFirstLayoutTest() }
+        } else {
+            Task { @MainActor in await runTests() }
+        }
         app.run()
+    }
+
+    /// Runs alone in its own process, so nothing measures the flyout before its first layout.
+    private static func runFirstLayoutTest() async {
+        await runFirstPopoverLayoutTest()
+        print("\(passed) first-layout test passed; \(failed) failed.")
+        exit(failed == 0 ? 0 : 1)
     }
 
     private static func runTests() async {
